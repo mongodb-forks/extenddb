@@ -11,10 +11,13 @@ use daemonize::Daemonize;
 use extenddb_auth::BuiltinAuthProvider;
 use extenddb_server::AppState;
 use extenddb_storage::management_store::SettingsStore;
-use extenddb_storage_postgres::DbCredentialStore;
-use extenddb_storage_postgres::{PostgresCatalogStore, PostgresConfig, PostgresEngine};
 use syslog_tracing::{Facility, Options, Syslog};
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, reload, util::SubscriberInitExt};
+
+#[cfg(feature = "postgres")]
+use extenddb_storage_postgres::DbCredentialStore;
+#[cfg(feature = "postgres")]
+use extenddb_storage_postgres::{PostgresCatalogStore, PostgresConfig, PostgresEngine};
 
 use crate::config;
 use crate::serve_helpers::{
@@ -68,6 +71,22 @@ pub fn run(args: &ServeArgs) -> anyhow::Result<()> {
         anyhow::bail!(
             "Unknown auth provider '{}'. Only 'builtin' is supported.",
             app_config.auth.provider
+        );
+    }
+
+    // Check backend is supported by this build
+    let backend = &app_config.storage._backend;
+    #[cfg(not(feature = "postgres"))]
+    if backend == "postgres" {
+        anyhow::bail!(
+            "PostgreSQL backend not enabled. Rebuild with --features postgres"
+        );
+    }
+    #[cfg(feature = "postgres")]
+    if backend != "postgres" {
+        anyhow::bail!(
+            "Unknown backend '{}'. This build only supports 'postgres'.",
+            backend
         );
     }
 
