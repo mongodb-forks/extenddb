@@ -274,3 +274,70 @@ fn name_ref_in_update() {
     apply("SET #s = :v", &mut item, names, values).unwrap();
     assert_eq!(item.get("status"), Some(&AttributeValue::S("new".into())));
 }
+
+#[test]
+fn set_list_index_zero_on_empty_list() {
+    let mut item = BTreeMap::new();
+    item.insert("mylist".into(), AttributeValue::L(vec![]));
+    let mut values = HashMap::new();
+    values.insert("v".into(), AttributeValue::S("hello".into()));
+    apply("SET mylist[0] = :v", &mut item, HashMap::new(), values).unwrap();
+    assert_eq!(
+        item.get("mylist"),
+        Some(&AttributeValue::L(vec![AttributeValue::S("hello".into())]))
+    );
+}
+
+#[test]
+fn set_list_index_beyond_bounds_appends() {
+    let mut item = BTreeMap::new();
+    item.insert(
+        "mylist".into(),
+        AttributeValue::L(vec![
+            AttributeValue::S("a".into()),
+            AttributeValue::S("b".into()),
+            AttributeValue::S("c".into()),
+        ]),
+    );
+    let mut values = HashMap::new();
+    values.insert("v".into(), AttributeValue::S("appended".into()));
+    apply("SET mylist[99] = :v", &mut item, HashMap::new(), values).unwrap();
+    let list = match item.get("mylist") {
+        Some(AttributeValue::L(l)) => l,
+        _ => panic!("expected list"),
+    };
+    assert_eq!(list.len(), 4);
+    assert_eq!(list[3], AttributeValue::S("appended".into()));
+}
+
+#[test]
+fn set_list_index_within_bounds_replaces() {
+    let mut item = BTreeMap::new();
+    item.insert(
+        "mylist".into(),
+        AttributeValue::L(vec![
+            AttributeValue::S("a".into()),
+            AttributeValue::S("b".into()),
+        ]),
+    );
+    let mut values = HashMap::new();
+    values.insert("v".into(), AttributeValue::S("replaced".into()));
+    apply("SET mylist[1] = :v", &mut item, HashMap::new(), values).unwrap();
+    let list = match item.get("mylist") {
+        Some(AttributeValue::L(l)) => l,
+        _ => panic!("expected list"),
+    };
+    assert_eq!(list[1], AttributeValue::S("replaced".into()));
+}
+
+#[test]
+fn set_intermediate_map_path_missing_fails() {
+    let mut item = BTreeMap::new();
+    let mut inner = BTreeMap::new();
+    inner.insert("x".into(), AttributeValue::S("exists".into()));
+    item.insert("a".into(), AttributeValue::M(inner));
+    let mut values = HashMap::new();
+    values.insert("v".into(), AttributeValue::S("hello".into()));
+    let result = apply("SET a.b.c = :v", &mut item, HashMap::new(), values);
+    assert!(result.is_err());
+}

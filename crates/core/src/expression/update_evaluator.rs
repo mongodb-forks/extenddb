@@ -435,10 +435,7 @@ fn set_nested(
                 if *idx < list.len() {
                     list[*idx] = value;
                 } else {
-                    return Err(DynamoDbError::ValidationException(
-                        "The provided expression refers to an attribute that does not exist in the item"
-                            .to_owned(),
-                    ));
+                    list.push(value);
                 }
             }
             _ => {
@@ -454,10 +451,13 @@ fn set_nested(
     match (&path[0], current) {
         (PathElement::Attribute(_), AttributeValue::M(map)) => {
             let name = resolve_attr_name(&path[0], maps)?;
-            let entry = map
-                .entry(name)
-                .or_insert_with(|| AttributeValue::M(BTreeMap::new()));
-            set_nested(entry, &path[1..], value, maps)
+            match map.get_mut(&name) {
+                Some(entry) => set_nested(entry, &path[1..], value, maps),
+                None => Err(DynamoDbError::ValidationException(
+                    "The document path provided in the update expression is invalid for update"
+                        .to_owned(),
+                )),
+            }
         }
         (PathElement::Index(idx), AttributeValue::L(list)) => {
             if *idx < list.len() {
