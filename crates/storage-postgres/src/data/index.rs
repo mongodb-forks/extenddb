@@ -19,7 +19,7 @@ use super::{all_sort_key_info, index_table_name};
 /// Metadata for a single index, used during write-path GSI/LSI sync.
 pub(crate) struct IndexMeta {
     pub(super) index_name: String,
-    pub(super) index_type: String,
+    pub(super) index_id: String,
     pub(super) key_schema: Vec<KeySchemaElement>,
     pub(super) projection: Projection,
     /// Per-GSI propagation delay in milliseconds. `None` means use system
@@ -33,7 +33,7 @@ pub(crate) async fn fetch_indexes_for_table(
     pool: &sqlx::PgPool,
 ) -> Result<Vec<IndexMeta>, StorageError> {
     let rows: Vec<(String, String, serde_json::Value, serde_json::Value, Option<i32>)> = sqlx::query_as(
-        "SELECT index_name, index_type, key_schema, projection, propagation_delay_ms FROM indexes WHERE table_id = $1",
+        "SELECT index_name, index_id, key_schema, projection, propagation_delay_ms FROM indexes WHERE table_id = $1",
     )
     .bind(table_id)
     .fetch_all(pool)
@@ -41,14 +41,14 @@ pub(crate) async fn fetch_indexes_for_table(
     .map_err(|e| StorageError::Internal(e.to_string()))?;
 
     rows.into_iter()
-        .map(|(name, idx_type, ks_json, proj_json, delay)| {
+        .map(|(name, id, ks_json, proj_json, delay)| {
             let key_schema: Vec<KeySchemaElement> = serde_json::from_value(ks_json)
                 .map_err(|e| StorageError::Internal(e.to_string()))?;
             let projection: Projection = serde_json::from_value(proj_json)
                 .map_err(|e| StorageError::Internal(e.to_string()))?;
             Ok(IndexMeta {
                 index_name: name,
-                index_type: idx_type,
+                index_id: id,
                 key_schema,
                 projection,
                 propagation_delay_ms: delay,
@@ -126,8 +126,7 @@ pub(super) fn effective_delay(idx: &IndexMeta, system_default: u64) -> u64 {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn sync_indexes(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    account_id: &str,
-    table_name: &str,
+    _table_id: &str,
     base_key_schema: &[KeySchemaElement],
     attr_defs: &[AttributeDefinition],
     indexes: &[IndexMeta],
@@ -139,7 +138,7 @@ pub(crate) async fn sync_indexes(
         if idx.index_type != "LSI" && effective_delay(idx, system_default_delay) != 0 {
             continue; // Async — handled after commit. LSIs are always synchronous.
         }
-        let idx_table = index_table_name(account_id, table_name, &idx.index_name);
+        let idx_table = index_table_name(&idx.index_id);
         let idx_sks = all_sort_key_info(&idx.key_schema, attr_defs);
         let base_sks = all_sort_key_info(base_key_schema, attr_defs);
 
@@ -184,6 +183,7 @@ pub(crate) async fn enqueue_async_indexes(
     pk_hash: u64,
     account_id: &str,
     table_name: &str,
+    table_id: &str,
     base_key_schema: &[KeySchemaElement],
     attr_defs: &[AttributeDefinition],
     indexes: &[IndexMeta],
@@ -201,9 +201,11 @@ pub(crate) async fn enqueue_async_indexes(
                 pk_hash,
                 account_id,
                 table_name,
+                table_id,
                 base_key_schema,
                 attr_defs,
                 &idx.index_name,
+                &idx.index_id,
                 &idx.key_schema,
                 &idx.projection,
                 old_item,
