@@ -110,8 +110,10 @@ pub async fn handle_get_item<S: TableEngine + DataEngine>(
 
     let item = match (&effective_projection, item) {
         (Some(proj_str), Some(fetched)) => {
-            let proj_tokens = tokenize_with_limit(proj_str, ctx.limits.max_expression_tokens)?;
-            let projection = parse_projection(&proj_tokens)?;
+            let proj_tokens = tokenize_with_limit(proj_str, ctx.limits.max_expression_tokens)
+                .map_err(|e| crate::expression_helpers::prefix_expression_error(e, "ProjectionExpression"))?;
+            let projection = parse_projection(&proj_tokens)
+                .map_err(|e| crate::expression_helpers::prefix_expression_error(e, "ProjectionExpression"))?;
             let maps = build_expression_maps(effective_proj_names.as_ref(), None);
             Some(apply_projection(&fetched, &projection, &maps)?)
         }

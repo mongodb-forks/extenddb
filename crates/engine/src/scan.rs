@@ -135,8 +135,10 @@ pub async fn handle_scan<S: TableEngine + DataEngine>(
 
     // Parse ProjectionExpression
     let projection = if let Some(ref proj_str) = input.projection_expression {
-        let proj_tokens = tokenize_with_limit(proj_str, ctx.limits.max_expression_tokens)?;
-        Some(parse_projection(&proj_tokens)?)
+        let proj_tokens = tokenize_with_limit(proj_str, ctx.limits.max_expression_tokens)
+            .map_err(|e| crate::expression_helpers::prefix_expression_error(e, "ProjectionExpression"))?;
+        Some(parse_projection(&proj_tokens)
+            .map_err(|e| crate::expression_helpers::prefix_expression_error(e, "ProjectionExpression"))?)
     } else {
         None
     };

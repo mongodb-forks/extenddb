@@ -110,8 +110,15 @@ pub async fn handle_query<S: TableEngine + DataEngine>(
                 .to_owned(),
         )
     })?;
-    let tokens = tokenize_with_limit(kce_str, ctx.limits.max_expression_tokens)?;
-    let mut key_condition = parse_key_condition(&tokens)?;
+    if kce_str.trim().is_empty() {
+        return Err(DynamoDbError::ValidationException(
+            "Invalid KeyConditionExpression: The expression can not be empty;".to_owned(),
+        ));
+    }
+    let tokens = tokenize_with_limit(kce_str, ctx.limits.max_expression_tokens)
+        .map_err(|e| crate::expression_helpers::prefix_expression_error(e, "KeyConditionExpression"))?;
+    let mut key_condition = parse_key_condition(&tokens)
+        .map_err(|e| crate::expression_helpers::prefix_expression_error(e, "KeyConditionExpression"))?;
 
     // Correct PK/SK assignment when both clauses are equality comparisons.
     // The parser can't distinguish PK from SK without the key schema.
@@ -156,8 +163,10 @@ pub async fn handle_query<S: TableEngine + DataEngine>(
 
     // Parse ProjectionExpression
     let projection = if let Some(ref proj_str) = input.projection_expression {
-        let proj_tokens = tokenize_with_limit(proj_str, ctx.limits.max_expression_tokens)?;
-        Some(parse_projection(&proj_tokens)?)
+        let proj_tokens = tokenize_with_limit(proj_str, ctx.limits.max_expression_tokens)
+            .map_err(|e| crate::expression_helpers::prefix_expression_error(e, "ProjectionExpression"))?;
+        Some(parse_projection(&proj_tokens)
+            .map_err(|e| crate::expression_helpers::prefix_expression_error(e, "ProjectionExpression"))?)
     } else {
         None
     };

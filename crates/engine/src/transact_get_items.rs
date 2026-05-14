@@ -112,8 +112,10 @@ pub async fn handle_transact_get_items<S: TableEngine + DataEngine>(
             let item = match (opt, tgi.get.projection_expression.as_deref()) {
                 (Some(item), Some(proj_str)) => {
                     let proj_tokens =
-                        tokenize_with_limit(proj_str, ctx.limits.max_expression_tokens)?;
-                    let projection = parse_projection(&proj_tokens)?;
+                        tokenize_with_limit(proj_str, ctx.limits.max_expression_tokens)
+                            .map_err(|e| crate::expression_helpers::prefix_expression_error(e, "ProjectionExpression"))?;
+                    let projection = parse_projection(&proj_tokens)
+                        .map_err(|e| crate::expression_helpers::prefix_expression_error(e, "ProjectionExpression"))?;
                     let maps =
                         build_expression_maps(tgi.get.expression_attribute_names.as_ref(), None);
                     Some(apply_projection(&item, &projection, &maps)?)

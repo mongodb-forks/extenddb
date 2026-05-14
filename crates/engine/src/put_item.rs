@@ -32,10 +32,32 @@ pub async fn handle_put_item<S: TableEngine + DataEngine>(
     ctx: &OperationContext<S>,
 ) -> Result<DispatchResult, DynamoDbError> {
     let input: PutItemInput = serde_json::from_value(body).map_err(|e| {
-        DynamoDbError::SerializationException(format!(
-            "Start of structure or map found where not expected: {e}"
-        ))
+        let msg = e.to_string();
+        if msg.contains("parameter values were invalid")
+            || msg.contains("may not be empty")
+            || msg.contains("contains duplicates")
+            || msg.contains("Null attribute value")
+        {
+            DynamoDbError::ValidationException(msg)
+        } else {
+            DynamoDbError::SerializationException(format!(
+                "Start of structure or map found where not expected: {e}"
+            ))
+        }
     })?;
+
+    // Reject EAV/EAN without an expression
+    let has_expression = input.condition_expression.as_ref().is_some_and(|s| !s.is_empty());
+    if !has_expression && input.expression_attribute_values.as_ref().is_some_and(|m| !m.is_empty()) {
+        return Err(DynamoDbError::ValidationException(
+            "ExpressionAttributeValues can only be specified when using expressions: ConditionExpression is null".to_owned(),
+        ));
+    }
+    if !has_expression && input.expression_attribute_names.as_ref().is_some_and(|m| !m.is_empty()) {
+        return Err(DynamoDbError::ValidationException(
+            "ExpressionAttributeNames can only be specified when using expressions: ConditionExpression is null".to_owned(),
+        ));
+    }
 
     let key_info = ctx
         .table_key_info(&input.table_name)

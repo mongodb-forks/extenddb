@@ -179,9 +179,12 @@ pub fn tokenize_with_limit(input: &str, max_tokens: usize) -> Result<Vec<Token>,
                 )?;
             }
             other => {
+                let ch = other as char;
+                let near_start = if i > 5 { i - 5 } else { 0 };
+                let near_end = std::cmp::min(i + 5, input.len());
+                let near = &input[near_start..near_end];
                 return Err(validation_err(&format!(
-                    "Invalid expression: unexpected character '{}'",
-                    other as char
+                    "Syntax error; token: \"{ch}\", near: \"{near}\""
                 )));
             }
         }
@@ -347,7 +350,7 @@ mod tests {
     fn tokenize_invalid_character_rejected() {
         let err = tokenize("a @ b").unwrap_err();
         assert!(
-            matches!(err, DynamoDbError::ValidationException(msg) if msg.contains("unexpected character"))
+            matches!(err, DynamoDbError::ValidationException(msg) if msg.contains("Syntax error; token:"))
         );
     }
 

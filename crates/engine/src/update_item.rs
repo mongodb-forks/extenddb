@@ -111,7 +111,13 @@ pub async fn handle_update_item<S: TableEngine + DataEngine>(
 
     // Parse the update expression
     let update_expr = effective_update_expr.as_deref().unwrap_or("");
-    let update_tokens = tokenize_with_limit(update_expr, ctx.limits.max_expression_tokens)?;
+    if update_expr.trim().is_empty() {
+        return Err(DynamoDbError::ValidationException(
+            "Invalid UpdateExpression: The expression can not be empty;".to_owned(),
+        ));
+    }
+    let update_tokens = tokenize_with_limit(update_expr, ctx.limits.max_expression_tokens)
+        .map_err(|e| crate::expression_helpers::prefix_expression_error(e, "UpdateExpression"))?;
     let actions = parse_update(&update_tokens)?;
 
     // Validate that no update action targets a key attribute (REQ-DATA-003)
