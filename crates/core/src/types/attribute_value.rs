@@ -98,7 +98,9 @@ impl<'de> Visitor<'de> for AttributeValueVisitor {
                 let n = value
                     .as_str()
                     .ok_or_else(|| de::Error::custom("N value must be a string"))?;
-                Ok(AttributeValue::N(n.to_owned()))
+                let normalized = crate::validation::number::validate_and_normalize_number(n)
+                    .unwrap_or_else(|_| n.to_owned());
+                Ok(AttributeValue::N(normalized))
             }
             "B" => {
                 let b64 = value
@@ -140,9 +142,10 @@ impl<'de> Visitor<'de> for AttributeValueVisitor {
                 let set: BTreeSet<String> = arr
                     .iter()
                     .map(|v| {
-                        v.as_str()
-                            .map(std::borrow::ToOwned::to_owned)
-                            .ok_or_else(|| de::Error::custom("NS elements must be strings"))
+                        let s = v.as_str()
+                            .ok_or_else(|| de::Error::custom("NS elements must be strings"))?;
+                        Ok(crate::validation::number::validate_and_normalize_number(s)
+                            .unwrap_or_else(|_| s.to_owned()))
                     })
                     .collect::<Result<_, _>>()?;
                 Ok(AttributeValue::NS(set))

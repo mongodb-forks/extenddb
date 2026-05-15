@@ -1,5 +1,7 @@
 // Copyright 2026 ExtendDB contributors
 // SPDX-License-Identifier: Apache-2.0
+pub mod number;
+
 use crate::error::{DynamoDbError, ErrorMessageKey, error_message};
 use crate::limits::LimitsConfig;
 use crate::types::{
@@ -416,6 +418,7 @@ pub fn validate_put_item(
 
     validate_item_keys(&input.item, key_schema, attr_defs)?;
     validate_attribute_name_sizes(&input.item, limits)?;
+    validate_item_numbers(&input.item)?;
 
     let size = item_size_bytes(&input.item);
     if size > limits.max_item_size_bytes {
@@ -729,6 +732,39 @@ pub fn validate_item_size(item: &Item, max_bytes: usize) -> Result<(), DynamoDbE
         return Err(DynamoDbError::ValidationException(format!(
             "Item size has exceeded the maximum allowed size of {max_bytes}"
         )));
+    }
+    Ok(())
+}
+
+/// Validate all number values in an item are within DynamoDB limits.
+pub fn validate_item_numbers(item: &Item) -> Result<(), DynamoDbError> {
+    for value in item.values() {
+        validate_attribute_number(value)?;
+    }
+    Ok(())
+}
+
+fn validate_attribute_number(value: &AttributeValue) -> Result<(), DynamoDbError> {
+    match value {
+        AttributeValue::N(n) => {
+            number::validate_and_normalize_number(n)?;
+        }
+        AttributeValue::NS(set) => {
+            for n in set {
+                number::validate_and_normalize_number(n)?;
+            }
+        }
+        AttributeValue::L(list) => {
+            for v in list {
+                validate_attribute_number(v)?;
+            }
+        }
+        AttributeValue::M(map) => {
+            for v in map.values() {
+                validate_attribute_number(v)?;
+            }
+        }
+        _ => {}
     }
     Ok(())
 }
