@@ -1,0 +1,26 @@
+{
+  "name": "extenddb",
+  "version": "0.0.2",
+  "description": "A production-grade DynamoDB-compatible API adapter backed by PostgreSQL",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ExtendDB/extenddb"
+  },
+  "bin": {
+    "extenddb": "bin/extenddb"
+  },
+  "optionalDependencies": {
+    "@extenddb/darwin-arm64": "0.0.2",
+    "@extenddb/darwin-x64": "0.0.2",
+    "@extenddb/linux-x64": "0.0.2",
+    "@extenddb/linux-arm64": "0.0.2"
+  },
+  "keywords": [
+    "dynamodb",
+    "database",
+    "postgresql",
+    "local-development",
+    "aws"
+  ]
+}
