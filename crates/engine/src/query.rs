@@ -172,6 +172,14 @@ pub async fn handle_query<S: TableEngine + DataEngine>(
     let pk_attr = &query_key_info.key_schema[0].attribute_name;
     key_condition.resolve_pk_sk(pk_attr, &effective_maps.names)?;
 
+    // Validate that the partition key is actually referenced in the condition.
+    let pk_resolved = resolve_path_attr_name(&key_condition.pk_path, &effective_maps.names);
+    if pk_resolved.as_deref() != Some(pk_attr.as_str()) {
+        return Err(DynamoDbError::ValidationException(format!(
+            "Query condition missed key schema element: {pk_attr}"
+        )));
+    }
+
     // For multi-part key schemas (GSIs with >1 HASH attribute), reclassify
     // the parsed conditions so all HASH attributes go to pk_path/extra_pk_conditions
     // and the RANGE condition stays as sk_condition.
