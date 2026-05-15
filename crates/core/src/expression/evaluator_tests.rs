@@ -268,3 +268,41 @@ fn contains_in_list() {
     values.insert("t".into(), AttributeValue::S("a".into()));
     assert!(eval("contains(tags, :t)", &item, HashMap::new(), values).unwrap());
 }
+
+#[test]
+fn ne_on_missing_attribute_is_true() {
+    let item = BTreeMap::new();
+    let mut values = HashMap::new();
+    values.insert("v".into(), AttributeValue::S("anything".into()));
+    assert!(eval("#a <> :v", &item, HashMap::from([("a".into(), "missing".into())]), values).unwrap());
+}
+
+#[test]
+fn eq_on_missing_attribute_is_false() {
+    let item = BTreeMap::new();
+    let mut values = HashMap::new();
+    values.insert("v".into(), AttributeValue::S("anything".into()));
+    assert!(!eval("#a = :v", &item, HashMap::from([("a".into(), "missing".into())]), values).unwrap());
+}
+
+#[test]
+fn lt_on_missing_attribute_is_false() {
+    let item = BTreeMap::new();
+    let mut values = HashMap::new();
+    values.insert("v".into(), AttributeValue::S("anything".into()));
+    assert!(!eval("#a < :v", &item, HashMap::from([("a".into(), "missing".into())]), values).unwrap());
+}
+
+#[test]
+fn ne_both_missing_is_true() {
+    let item = BTreeMap::new();
+    let names = HashMap::from([("a".into(), "x".into()), ("b".into(), "y".into())]);
+    assert!(eval("#a <> #b", &item, names, HashMap::new()).unwrap());
+}
+
+#[test]
+fn eq_both_missing_is_false() {
+    let item = BTreeMap::new();
+    let names = HashMap::from([("a".into(), "x".into()), ("b".into(), "y".into())]);
+    assert!(!eval("#a = #b", &item, names, HashMap::new()).unwrap());
+}

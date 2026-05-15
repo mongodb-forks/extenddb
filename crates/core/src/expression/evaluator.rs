@@ -38,7 +38,7 @@ pub fn evaluate_condition(
                     let rpn = placeholder_numeric(right, maps);
                     Ok(compare_values(l, r, *op, lpn, rpn))
                 }
-                _ => Ok(false),
+                _ => Ok(*op == CompareOp::Ne),
             }
         }
         Expr::And(left, right) => {
