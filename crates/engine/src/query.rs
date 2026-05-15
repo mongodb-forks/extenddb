@@ -268,6 +268,13 @@ pub async fn handle_query<S: TableEngine + DataEngine>(
     }
 
     // Validate Select vs ProjectionExpression and index requirements
+    if let Some(Select::SpecificAttributes) = input.select {
+        if effective_projection_str.is_none() {
+            return Err(DynamoDbError::ValidationException(
+                "1 validation error detected: Must specify the AttributesToGet or ProjectionExpression when choosing to get SPECIFIC_ATTRIBUTES".to_owned(),
+            ));
+        }
+    }
     if let Some(Select::AllProjectedAttributes) = input.select {
         if index_info.is_none() {
             return Err(DynamoDbError::ValidationException(

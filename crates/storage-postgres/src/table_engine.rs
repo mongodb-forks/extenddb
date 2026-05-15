@@ -53,7 +53,7 @@ impl TableEngine for PostgresEngine {
 
         let rows: Vec<(String,)> = if let Some(ref start) = input.exclusive_start_table_name {
             sqlx::query_as(
-                "SELECT table_name FROM tables WHERE account_id = $1 AND table_name > $2 ORDER BY table_name LIMIT $3",
+                "SELECT table_name FROM tables WHERE account_id = $1 AND table_name > $2 ORDER BY table_name COLLATE \"C\" LIMIT $3",
             )
             .bind(account_id)
             .bind(start)
@@ -63,7 +63,7 @@ impl TableEngine for PostgresEngine {
             .map_err(|e| StorageError::Internal(e.to_string()))?
         } else {
             sqlx::query_as(
-                "SELECT table_name FROM tables WHERE account_id = $1 ORDER BY table_name LIMIT $2",
+                "SELECT table_name FROM tables WHERE account_id = $1 ORDER BY table_name COLLATE \"C\" LIMIT $2",
             )
             .bind(account_id)
             .bind(limit + 1)

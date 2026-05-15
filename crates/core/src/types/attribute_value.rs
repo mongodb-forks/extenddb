@@ -166,7 +166,7 @@ impl<'de> Visitor<'de> for AttributeValueVisitor {
                     .ok_or_else(|| de::Error::custom("BS value must be an array"))?;
                 if arr.is_empty() {
                     return Err(de::Error::custom(
-                        "One or more parameter values were invalid: Binary sets  may not be empty",
+                        "One or more parameter values were invalid: Binary sets should not be empty",
                     ));
                 }
                 let set: BTreeSet<Vec<u8>> = arr
