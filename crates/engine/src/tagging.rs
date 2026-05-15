@@ -33,7 +33,10 @@ async fn validate_resource_arn<S: TableEngine>(
     ctx: &OperationContext<S>,
 ) -> Result<(), DynamoDbError> {
     let table_name = extract_table_name_from_arn(arn).ok_or_else(|| {
-        DynamoDbError::ResourceNotFoundException(format!("Requested resource not found: {arn}"))
+        DynamoDbError::ValidationException(format!(
+            "1 validation error detected: Value '{arn}' at 'resourceArn' failed to satisfy constraint: \
+             Member must satisfy regular expression pattern: arn:aws:dynamodb:.+"
+        ))
     })?;
 
     // Verify the table exists via table_key_info (lightweight check).

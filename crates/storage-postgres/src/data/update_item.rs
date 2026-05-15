@@ -94,8 +94,14 @@ impl PostgresEngine {
 
         let old_item = if return_old { Some(item.clone()) } else { None };
 
-        // Evaluate condition against the item before mutation
-        match check_condition(condition, &item, maps) {
+        // Evaluate condition against the existing item (empty if non-existent).
+        // DynamoDB treats a non-existent item as having no attributes at all.
+        let condition_item = if old_json.is_some() {
+            &item
+        } else {
+            &std::collections::BTreeMap::new()
+        };
+        match check_condition(condition, condition_item, maps) {
             Ok(()) => {}
             Err(StorageError::ConditionFailed(_)) => {
                 if old_json.is_some() {
