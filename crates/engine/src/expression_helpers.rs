@@ -88,6 +88,7 @@ pub fn parse_optional_filter(
     limits: &LimitsConfig,
 ) -> Result<Option<Expr>, DynamoDbError> {
     parse_optional_condition(expr, limits)
+        .map_err(|e| prefix_expression_error(e, "FilterExpression"))
 }
 
 /// Resolve a condition from either `ConditionExpression` or legacy `Expected`.
@@ -144,4 +145,19 @@ pub fn resolve_condition(
     let maps = build_expression_maps(names, values);
     let condition = parse_optional_condition(condition_expression, limits)?;
     Ok((condition, maps))
+}
+
+/// Prefix an expression error with the expression type, matching DynamoDB's format.
+/// If the error already starts with "Invalid", it's returned as-is.
+pub fn prefix_expression_error(err: DynamoDbError, expr_type: &str) -> DynamoDbError {
+    match err {
+        DynamoDbError::ValidationException(msg) => {
+            if msg.starts_with("Invalid ") || msg.starts_with("1 validation") {
+                DynamoDbError::ValidationException(msg)
+            } else {
+                DynamoDbError::ValidationException(format!("Invalid {expr_type}: {msg}"))
+            }
+        }
+        other => other,
+    }
 }

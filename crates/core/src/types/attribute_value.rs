@@ -117,7 +117,7 @@ impl<'de> Visitor<'de> for AttributeValueVisitor {
                     .ok_or_else(|| de::Error::custom("SS value must be an array"))?;
                 if arr.is_empty() {
                     return Err(de::Error::custom(
-                        "One or more parameter values are not valid. An string set  may not be empty",
+                        "One or more parameter values were invalid: An string set  may not be empty",
                     ));
                 }
                 let set: BTreeSet<String> = arr
@@ -146,7 +146,7 @@ impl<'de> Visitor<'de> for AttributeValueVisitor {
                     .ok_or_else(|| de::Error::custom("NS value must be an array"))?;
                 if arr.is_empty() {
                     return Err(de::Error::custom(
-                        "One or more parameter values are not valid. An number set  may not be empty",
+                        "One or more parameter values were invalid: An number set  may not be empty",
                     ));
                 }
                 let set: BTreeSet<String> = arr
@@ -166,7 +166,7 @@ impl<'de> Visitor<'de> for AttributeValueVisitor {
                     .ok_or_else(|| de::Error::custom("BS value must be an array"))?;
                 if arr.is_empty() {
                     return Err(de::Error::custom(
-                        "One or more parameter values are not valid. Binary sets  may not be empty",
+                        "One or more parameter values were invalid: Binary sets  may not be empty",
                     ));
                 }
                 let set: BTreeSet<Vec<u8>> = arr
@@ -194,7 +194,7 @@ impl<'de> Visitor<'de> for AttributeValueVisitor {
                     .ok_or_else(|| de::Error::custom("NULL value must be a boolean"))?;
                 if !n {
                     return Err(de::Error::custom(
-                        "SerializationException: NULL value must be true",
+                        "One or more parameter values were invalid: Null attribute value types must have the value of true",
                     ));
                 }
                 Ok(AttributeValue::Null)
@@ -366,7 +366,7 @@ mod tests {
     fn null_false_rejected() {
         let json = r#"{"NULL":false}"#;
         let err = serde_json::from_str::<AttributeValue>(json).unwrap_err();
-        assert!(err.to_string().contains("NULL value must be true"));
+        assert!(err.to_string().contains("Null attribute value types must have the value of true"));
     }
 
     #[test]

@@ -51,6 +51,19 @@ pub async fn handle_put_item<S: TableEngine + DataEngine>(
         }
     })?;
 
+    // Reject EAV/EAN without an expression
+    let has_expression = input.condition_expression.as_ref().is_some_and(|s| !s.is_empty());
+    if !has_expression && input.expression_attribute_values.as_ref().is_some_and(|m| !m.is_empty()) {
+        return Err(DynamoDbError::ValidationException(
+            "ExpressionAttributeValues can only be specified when using expressions: ConditionExpression is null".to_owned(),
+        ));
+    }
+    if !has_expression && input.expression_attribute_names.as_ref().is_some_and(|m| !m.is_empty()) {
+        return Err(DynamoDbError::ValidationException(
+            "ExpressionAttributeNames can only be specified when using expressions: ConditionExpression is null".to_owned(),
+        ));
+    }
+
     let key_info = ctx
         .table_key_info(&input.table_name)
         .await
