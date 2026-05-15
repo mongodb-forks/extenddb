@@ -20,6 +20,7 @@ use super::{all_sort_key_info, index_table_name};
 pub(crate) struct IndexMeta {
     pub(super) index_name: String,
     pub(super) index_id: String,
+    pub(super) index_type: String,
     pub(super) key_schema: Vec<KeySchemaElement>,
     pub(super) projection: Projection,
     /// Per-GSI propagation delay in milliseconds. `None` means use system
@@ -32,8 +33,8 @@ pub(crate) async fn fetch_indexes_for_table(
     table_id: &str,
     pool: &sqlx::PgPool,
 ) -> Result<Vec<IndexMeta>, StorageError> {
-    let rows: Vec<(String, String, serde_json::Value, serde_json::Value, Option<i32>)> = sqlx::query_as(
-        "SELECT index_name, index_id, key_schema, projection, propagation_delay_ms FROM indexes WHERE table_id = $1",
+    let rows: Vec<(String, String, String, serde_json::Value, serde_json::Value, Option<i32>)> = sqlx::query_as(
+        "SELECT index_name, index_id, index_type, key_schema, projection, propagation_delay_ms FROM indexes WHERE table_id = $1",
     )
     .bind(table_id)
     .fetch_all(pool)
@@ -41,7 +42,7 @@ pub(crate) async fn fetch_indexes_for_table(
     .map_err(|e| StorageError::Internal(e.to_string()))?;
 
     rows.into_iter()
-        .map(|(name, id, ks_json, proj_json, delay)| {
+        .map(|(name, id, idx_type, ks_json, proj_json, delay)| {
             let key_schema: Vec<KeySchemaElement> = serde_json::from_value(ks_json)
                 .map_err(|e| StorageError::Internal(e.to_string()))?;
             let projection: Projection = serde_json::from_value(proj_json)
@@ -49,6 +50,7 @@ pub(crate) async fn fetch_indexes_for_table(
             Ok(IndexMeta {
                 index_name: name,
                 index_id: id,
+                index_type: idx_type,
                 key_schema,
                 projection,
                 propagation_delay_ms: delay,
@@ -135,8 +137,8 @@ pub(crate) async fn sync_indexes(
     system_default_delay: u64,
 ) -> Result<(), StorageError> {
     for idx in indexes {
-        if effective_delay(idx, system_default_delay) != 0 {
-            continue; // Async — handled after commit.
+        if idx.index_type != "LSI" && effective_delay(idx, system_default_delay) != 0 {
+            continue; // Async — handled after commit. LSIs are always synchronous.
         }
         let idx_table = index_table_name(&idx.index_id);
         let idx_sks = all_sort_key_info(&idx.key_schema, attr_defs);
