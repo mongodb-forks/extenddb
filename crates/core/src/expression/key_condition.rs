@@ -258,6 +258,17 @@ pub enum SortKeyCondition {
 ///
 /// Returns `ValidationException` for syntax errors or unsupported constructs.
 pub fn parse_key_condition(tokens: &[Token]) -> Result<KeyCondition, DynamoDbError> {
+    // Strip outer parentheses: "(pk = :pk AND sk > :sk)" → "pk = :pk AND sk > :sk"
+    let tokens = if tokens.len() >= 2
+        && tokens[0] == Token::LParen
+        && tokens[tokens.len() - 1] == Token::RParen
+        && outer_parens_match(tokens)
+    {
+        &tokens[1..tokens.len() - 1]
+    } else {
+        tokens
+    };
+
     let mut pos = 0;
     let mut clauses = Vec::new();
 
@@ -406,6 +417,29 @@ fn parse_key_clause(tokens: &[Token], pos: &mut usize) -> Result<RawClause, Dyna
         ));
     }
 
+    // Allow one level of parentheses around a single clause
+    if tokens[*pos] == Token::LParen {
+        *pos += 1;
+        let clause = parse_key_clause_inner(tokens, pos)?;
+        if *pos < tokens.len() && tokens[*pos] == Token::RParen {
+            *pos += 1;
+            return Ok(clause);
+        }
+        return Err(validation_err(
+            "Invalid KeyConditionExpression: expected ')'",
+        ));
+    }
+
+    parse_key_clause_inner(tokens, pos)
+}
+
+fn parse_key_clause_inner(tokens: &[Token], pos: &mut usize) -> Result<RawClause, DynamoDbError> {
+    if *pos >= tokens.len() {
+        return Err(validation_err(
+            "Invalid KeyConditionExpression: unexpected end of expression",
+        ));
+    }
+
     // begins_with(path, :val)
     if let Token::Ident(name) = &tokens[*pos] {
         if name.eq_ignore_ascii_case("begins_with")
@@ -514,6 +548,25 @@ fn try_comparator(token: &Token) -> Option<CompareOp> {
         Token::Ge => Some(CompareOp::Ge),
         _ => None,
     }
+}
+
+/// Check if the outermost parens in a token slice are a matching pair that
+/// wraps the entire expression (not just a prefix).
+fn outer_parens_match(tokens: &[Token]) -> bool {
+    let mut depth = 0;
+    for (i, token) in tokens.iter().enumerate() {
+        match token {
+            Token::LParen => depth += 1,
+            Token::RParen => {
+                depth -= 1;
+                if depth == 0 && i < tokens.len() - 1 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
 }
 
 fn validation_err(msg: &str) -> DynamoDbError {
