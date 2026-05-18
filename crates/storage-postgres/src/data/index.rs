@@ -198,6 +198,9 @@ pub(crate) async fn enqueue_async_indexes(
         if delay == 0 {
             continue; // Sync — already handled in transaction.
         }
+        if idx.index_type == "LSI" {
+            continue; // LSIs are always synchronous — already handled in transaction.
+        }
         gsi_queue
             .enqueue(
                 pk_hash,
