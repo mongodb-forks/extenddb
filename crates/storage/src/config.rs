@@ -12,9 +12,6 @@ pub trait StorageConfig: Send + Sync + std::fmt::Debug {
     /// Backend-specific connection configuration as a string.
     ///
     /// For PostgreSQL: connection string (postgresql://...)
-    /// For Cassandra: contact points (host1:port,host2:port)
-    /// For MongoDB: connection URI (mongodb://...)
-    /// For Redis: endpoint (host:port)
     fn connection_config(&self) -> &str;
 
     /// Maximum concurrent connections for data operations.

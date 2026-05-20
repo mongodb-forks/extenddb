@@ -298,7 +298,7 @@ pub fn load(config_path: &str) -> anyhow::Result<AppConfig> {
 /// Redact password from a connection string for safe logging (REQ-LOG-002).
 ///
 /// Uses the backend-specific operations engine to handle different connection
-/// string formats (`PostgreSQL`, Cassandra, etc.).
+/// string formats (`PostgreSQL`).
 pub fn redact_password(backend: &str, conn: &str) -> String {
     extenddb_storage::operations::redact_connection_string(backend, conn)
         .unwrap_or_else(|_| conn.to_owned())
