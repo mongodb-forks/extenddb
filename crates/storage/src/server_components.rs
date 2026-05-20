@@ -92,7 +92,7 @@ pub type ServerComponentsFactory =
 ///
 /// Backends submit this via inventory::submit! to register themselves.
 pub struct ServerComponentsRegistration {
-    /// Backend name (e.g., "postgres", "cassandra")
+    /// Backend name (e.g., "postgres")
     pub backend: &'static str,
 
     /// Factory function that creates the backend components

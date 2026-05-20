@@ -4,9 +4,8 @@
 //! Bootstrapper storage trait for init/destroy/migrate operations.
 //!
 //! These operations are inherently backend-specific (e.g., `CREATE DATABASE`
-//! is PostgreSQL DDL vs `CREATE KEYSPACE` for Cassandra). The trait abstracts
-//! the high-level operations so the CLI commands don't depend on a specific
-//! storage backend.
+//! is PostgreSQL DDL). The trait abstracts the high-level operations so the
+//! CLI commands don't depend on a specific storage backend.
 
 use async_trait::async_trait;
 
