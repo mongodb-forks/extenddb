@@ -259,10 +259,24 @@ pub async fn handle_export_table(
     };
 
     let scan_result: Result<u64, DynamoDbError> = {
+        // Track count inside the closure so we can short-circuit the
+        // snapshot scan as soon as `max_export_item_count` is exceeded.
+        // Returning Err from `on_page` propagates through
+        // `scan_full_table_snapshot_impl`, which exits its loop without
+        // committing — releasing the REPEATABLE READ snapshot promptly so
+        // VACUUM can resume reclaiming dead tuples on the table.
+        let mut count: u64 = 0;
         let on_page: extenddb_storage::SnapshotPageHandler<'_> = Box::new(move |items| {
+            count += items.len() as u64;
+            let exceeded = count > max_export_items;
             let owned = items.to_vec();
             let tx = page_tx.clone();
             Box::pin(async move {
+                if exceeded {
+                    return Err(extenddb_storage::error::StorageError::Validation(format!(
+                        "Export item count exceeds maximum ({max_export_items})"
+                    )));
+                }
                 tx.send(owned).await.map_err(|_| {
                     extenddb_storage::error::StorageError::Internal(
                         "export writer task closed early".to_owned(),
@@ -287,18 +301,12 @@ pub async fn handle_export_table(
         )))
     });
 
-    // Combine results, preferring scan errors (which are usually root
-    // cause) over writer errors. On any error, remove the partial file.
+    // Combine results. A successful scan return (Ok(n)) implies n is at or
+    // under max_export_item_count — the over-limit case is now handled
+    // inside the snapshot transaction. On any error, remove the partial
+    // file before propagating.
     let item_count: i64 = match (scan_result, writer_result) {
-        (Ok(n), Ok(())) => {
-            if n > max_export_items {
-                let _ = tokio::fs::remove_file(&output_path).await;
-                return Err(DynamoDbError::ValidationException(format!(
-                    "Export item count exceeds maximum ({max_export_items})"
-                )));
-            }
-            i64::try_from(n).unwrap_or(i64::MAX)
-        }
+        (Ok(n), Ok(())) => i64::try_from(n).unwrap_or(i64::MAX),
         (Err(e), _) | (Ok(_), Err(e)) => {
             let _ = tokio::fs::remove_file(&output_path).await;
             return Err(e);
