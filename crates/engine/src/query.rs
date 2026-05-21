@@ -13,8 +13,7 @@ use extenddb_core::expression::{
     ExpressionMaps, parse_key_condition, parse_projection, tokenize_for,
 };
 use extenddb_core::types::{
-    IndexType, KeyType, QueryInput, QueryOutput, Select, TableKeyInfo, extract_key,
-    item_size_bytes,
+    IndexType, KeyType, QueryInput, QueryOutput, Select, TableKeyInfo, extract_key, item_size_bytes,
 };
 
 use crate::OperationContext;
@@ -392,7 +391,9 @@ pub async fn handle_query(
 
     // For index queries, enrich the storage LEK with base table key attributes.
     let enriched_storage_last_key = if storage_last_key.is_some() && index_info.is_some() {
-        raw_items.last().map(|item| extract_key(item, &lek_key_schema))
+        raw_items
+            .last()
+            .map(|item| extract_key(item, &lek_key_schema))
     } else {
         storage_last_key
     };

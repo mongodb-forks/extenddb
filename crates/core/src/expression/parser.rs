@@ -493,7 +493,12 @@ mod tests {
 
     #[test]
     fn redundant_parens_rejected() {
-        let cases = ["((a = :v))", "(((a = :v)))", "((a = :v AND b = :v2))", "((NOT (a = :v)))"];
+        let cases = [
+            "((a = :v))",
+            "(((a = :v)))",
+            "((a = :v AND b = :v2))",
+            "((NOT (a = :v)))",
+        ];
         for expr in cases {
             let tokens = tokenize(expr).unwrap();
             let err = parse_condition(&tokens).unwrap_err();
@@ -506,7 +511,12 @@ mod tests {
 
     #[test]
     fn valid_parens_accepted() {
-        let cases = ["(a = :v)", "(a = :v) AND (b = :v2)", "((a = :v) AND (b = :v2))", "(NOT (a = :v))"];
+        let cases = [
+            "(a = :v)",
+            "(a = :v) AND (b = :v2)",
+            "((a = :v) AND (b = :v2))",
+            "(NOT (a = :v))",
+        ];
         for expr in cases {
             let tokens = tokenize(expr).unwrap();
             assert!(

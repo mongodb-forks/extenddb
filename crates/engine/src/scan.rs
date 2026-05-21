@@ -298,7 +298,9 @@ pub async fn handle_scan(
     // attributes. Enrich it with the base table key attributes from the last
     // raw item so the LEK matches DynamoDB's format (all combined keys).
     let enriched_storage_last_key = if storage_last_key.is_some() && index_info.is_some() {
-        raw_items.last().map(|item| extract_key(item, &lek_key_schema))
+        raw_items
+            .last()
+            .map(|item| extract_key(item, &lek_key_schema))
     } else {
         storage_last_key
     };

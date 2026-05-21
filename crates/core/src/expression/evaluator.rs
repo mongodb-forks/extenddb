@@ -271,10 +271,13 @@ fn evaluate_function(
             if args[0] == args[1] {
                 let operand_str = match &args[0] {
                     Expr::Path(p) => {
-                        let parts: Vec<String> = p.iter().map(|e| match e {
-                            PathElement::Attribute(a) => a.clone(),
-                            PathElement::Index(i) => format!("[{i}]"),
-                        }).collect();
+                        let parts: Vec<String> = p
+                            .iter()
+                            .map(|e| match e {
+                                PathElement::Attribute(a) => a.clone(),
+                                PathElement::Index(i) => format!("[{i}]"),
+                            })
+                            .collect();
                         format!("[{}]", parts.join("."))
                     }
                     _ => String::new(),

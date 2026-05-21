@@ -78,7 +78,9 @@ pub fn validate_scan_exclusive_start_key(
             } else {
                 "The provided starting key is invalid: The provided key element does not match the schema".to_owned()
             };
-            return Err(extenddb_core::error::DynamoDbError::ValidationException(msg));
+            return Err(extenddb_core::error::DynamoDbError::ValidationException(
+                msg,
+            ));
         }
     }
     Ok(())

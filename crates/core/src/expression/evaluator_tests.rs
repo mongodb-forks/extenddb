@@ -174,7 +174,12 @@ fn contains_string_substring() {
 #[test]
 fn contains_duplicate_operand_rejected() {
     let item = simple_item();
-    let result = eval("contains(name, name)", &item, HashMap::new(), HashMap::new());
+    let result = eval(
+        "contains(name, name)",
+        &item,
+        HashMap::new(),
+        HashMap::new(),
+    );
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
     assert!(msg.contains("first operand must be distinct"));
