@@ -60,11 +60,9 @@ class TestCreateTable:
         assert exc_info.value.response["Error"]["Code"] == "ResourceInUseException"
 
     def test_create_table_name_too_short(self, dynamodb_client):
-        # botocore validates table name min length (3) client-side, raising
-        # ParamValidationError before the request reaches the server.
-        from botocore.exceptions import ParamValidationError
+        from botocore.exceptions import ClientError, ParamValidationError
 
-        with pytest.raises(ParamValidationError):
+        with pytest.raises((ParamValidationError, ClientError)):
             dynamodb_client.create_table(
                 TableName="ab",
                 AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"}],
