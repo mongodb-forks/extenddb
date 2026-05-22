@@ -953,6 +953,283 @@ class TestNumberSizing:
 
 
 # ---------------------------------------------------------------------------
+# UPDATED_NEW/OLD returns only leaf value at path (cfaacfe)
+# ---------------------------------------------------------------------------
+
+
+class TestUpdatedNewOldLeafPath:
+    """ReturnValues=UPDATED_NEW/UPDATED_OLD returns only the leaf value
+    at the updated path, wrapped in the path structure."""
+
+    @pytest.fixture(scope="class")
+    def leaf_table(self, dynamodb_client):
+        with scoped_table(dynamodb_client) as name:
+            yield name
+
+    def test_updated_new_top_level_returns_whole_attribute(
+        self, dynamodb_client, leaf_table
+    ):
+        """SET v = :val with UPDATED_NEW returns {v: <new_value>}."""
+        dynamodb_client.put_item(
+            TableName=leaf_table,
+            Item={"pk": {"S": "top-new"}, "v": {"N": "1"}, "other": {"S": "x"}},
+        )
+        resp = dynamodb_client.update_item(
+            TableName=leaf_table,
+            Key={"pk": {"S": "top-new"}},
+            UpdateExpression="SET v = :val",
+            ExpressionAttributeValues={":val": {"N": "99"}},
+            ReturnValues="UPDATED_NEW",
+        )
+        attrs = resp["Attributes"]
+        assert attrs["v"]["N"] == "99"
+        # Only updated attributes should be present
+        assert "other" not in attrs
+        assert "pk" not in attrs
+
+    def test_updated_old_top_level_returns_old_value(
+        self, dynamodb_client, leaf_table
+    ):
+        """SET v = :val with UPDATED_OLD returns {v: <old_value>}."""
+        dynamodb_client.put_item(
+            TableName=leaf_table,
+            Item={"pk": {"S": "top-old"}, "v": {"N": "10"}, "other": {"S": "x"}},
+        )
+        resp = dynamodb_client.update_item(
+            TableName=leaf_table,
+            Key={"pk": {"S": "top-old"}},
+            UpdateExpression="SET v = :val",
+            ExpressionAttributeValues={":val": {"N": "20"}},
+            ReturnValues="UPDATED_OLD",
+        )
+        attrs = resp["Attributes"]
+        assert attrs["v"]["N"] == "10"
+        assert "other" not in attrs
+
+    def test_updated_new_nested_path_returns_leaf_wrapped(
+        self, dynamodb_client, leaf_table
+    ):
+        """SET a.b = :v with UPDATED_NEW returns {a: {M: {b: <value>}}}."""
+        dynamodb_client.put_item(
+            TableName=leaf_table,
+            Item={
+                "pk": {"S": "nested-new"},
+                "a": {"M": {"b": {"S": "old"}, "c": {"S": "untouched"}}},
+            },
+        )
+        resp = dynamodb_client.update_item(
+            TableName=leaf_table,
+            Key={"pk": {"S": "nested-new"}},
+            UpdateExpression="SET a.b = :v",
+            ExpressionAttributeValues={":v": {"S": "new"}},
+            ReturnValues="UPDATED_NEW",
+        )
+        attrs = resp["Attributes"]
+        # Should return only the leaf at path a.b, wrapped in the map structure
+        assert "a" in attrs
+        inner = attrs["a"]["M"]
+        assert inner["b"]["S"] == "new"
+        # The sibling 'c' should NOT be present — only the updated leaf
+        assert "c" not in inner
+
+    def test_updated_old_nested_path_returns_old_leaf(
+        self, dynamodb_client, leaf_table
+    ):
+        """SET a.b = :v with UPDATED_OLD returns {a: {M: {b: <old_value>}}}."""
+        dynamodb_client.put_item(
+            TableName=leaf_table,
+            Item={
+                "pk": {"S": "nested-old"},
+                "a": {"M": {"b": {"S": "original"}, "c": {"S": "other"}}},
+            },
+        )
+        resp = dynamodb_client.update_item(
+            TableName=leaf_table,
+            Key={"pk": {"S": "nested-old"}},
+            UpdateExpression="SET a.b = :v",
+            ExpressionAttributeValues={":v": {"S": "changed"}},
+            ReturnValues="UPDATED_OLD",
+        )
+        attrs = resp["Attributes"]
+        assert "a" in attrs
+        inner = attrs["a"]["M"]
+        assert inner["b"]["S"] == "original"
+        assert "c" not in inner
+
+    def test_updated_new_deeply_nested_path(self, dynamodb_client, leaf_table):
+        """SET a.b.c = :v with UPDATED_NEW returns {a: {M: {b: {M: {c: <val>}}}}}."""
+        dynamodb_client.put_item(
+            TableName=leaf_table,
+            Item={
+                "pk": {"S": "deep-new"},
+                "a": {"M": {"b": {"M": {"c": {"N": "1"}, "d": {"N": "2"}}}}},
+            },
+        )
+        resp = dynamodb_client.update_item(
+            TableName=leaf_table,
+            Key={"pk": {"S": "deep-new"}},
+            UpdateExpression="SET a.b.c = :v",
+            ExpressionAttributeValues={":v": {"N": "100"}},
+            ReturnValues="UPDATED_NEW",
+        )
+        attrs = resp["Attributes"]
+        assert attrs["a"]["M"]["b"]["M"]["c"]["N"] == "100"
+        # Sibling 'd' should not be present
+        assert "d" not in attrs["a"]["M"]["b"]["M"]
+
+    def test_updated_new_list_index(self, dynamodb_client, leaf_table):
+        """SET mylist[1] = :v with UPDATED_NEW returns the list with the element."""
+        dynamodb_client.put_item(
+            TableName=leaf_table,
+            Item={
+                "pk": {"S": "list-idx"},
+                "mylist": {"L": [{"S": "a"}, {"S": "b"}, {"S": "c"}]},
+            },
+        )
+        resp = dynamodb_client.update_item(
+            TableName=leaf_table,
+            Key={"pk": {"S": "list-idx"}},
+            UpdateExpression="SET mylist[1] = :v",
+            ExpressionAttributeValues={":v": {"S": "B"}},
+            ReturnValues="UPDATED_NEW",
+        )
+        attrs = resp["Attributes"]
+        # mylist should be present with the updated element
+        assert "mylist" in attrs
+        # The response wraps the leaf in a single-element list
+        lst = attrs["mylist"]["L"]
+        assert len(lst) == 1
+        assert lst[0]["S"] == "B"
+
+    def test_updated_new_multiple_top_level_attrs(self, dynamodb_client, leaf_table):
+        """SET a = :v1, b = :v2 with UPDATED_NEW returns both attributes."""
+        dynamodb_client.put_item(
+            TableName=leaf_table,
+            Item={"pk": {"S": "multi-top"}, "a": {"N": "1"}, "b": {"N": "2"}, "c": {"N": "3"}},
+        )
+        resp = dynamodb_client.update_item(
+            TableName=leaf_table,
+            Key={"pk": {"S": "multi-top"}},
+            UpdateExpression="SET a = :v1, b = :v2",
+            ExpressionAttributeValues={":v1": {"N": "10"}, ":v2": {"N": "20"}},
+            ReturnValues="UPDATED_NEW",
+        )
+        attrs = resp["Attributes"]
+        assert attrs["a"]["N"] == "10"
+        assert attrs["b"]["N"] == "20"
+        # Untouched attribute should not be present
+        assert "c" not in attrs
+
+    def test_updated_new_multiple_subpaths_same_top_level(
+        self, dynamodb_client, leaf_table
+    ):
+        """SET a.b = :v1, a.c = :v2 with UPDATED_NEW returns both sub-paths merged."""
+        dynamodb_client.put_item(
+            TableName=leaf_table,
+            Item={
+                "pk": {"S": "multi-sub"},
+                "a": {"M": {"b": {"S": "old-b"}, "c": {"S": "old-c"}, "d": {"S": "untouched"}}},
+            },
+        )
+        resp = dynamodb_client.update_item(
+            TableName=leaf_table,
+            Key={"pk": {"S": "multi-sub"}},
+            UpdateExpression="SET a.b = :v1, a.c = :v2",
+            ExpressionAttributeValues={":v1": {"S": "new-b"}, ":v2": {"S": "new-c"}},
+            ReturnValues="UPDATED_NEW",
+        )
+        attrs = resp["Attributes"]
+        assert "a" in attrs
+        inner = attrs["a"]["M"]
+        # Both updated sub-paths should be present
+        assert inner["b"]["S"] == "new-b"
+        assert inner["c"]["S"] == "new-c"
+        # Untouched sibling 'd' should NOT be present
+        assert "d" not in inner
+
+    def test_updated_old_multiple_subpaths_same_top_level(
+        self, dynamodb_client, leaf_table
+    ):
+        """SET a.b = :v1, a.c = :v2 with UPDATED_OLD returns both old sub-path values."""
+        dynamodb_client.put_item(
+            TableName=leaf_table,
+            Item={
+                "pk": {"S": "multi-sub-old"},
+                "a": {"M": {"b": {"S": "orig-b"}, "c": {"S": "orig-c"}, "d": {"S": "other"}}},
+            },
+        )
+        resp = dynamodb_client.update_item(
+            TableName=leaf_table,
+            Key={"pk": {"S": "multi-sub-old"}},
+            UpdateExpression="SET a.b = :v1, a.c = :v2",
+            ExpressionAttributeValues={":v1": {"S": "x"}, ":v2": {"S": "y"}},
+            ReturnValues="UPDATED_OLD",
+        )
+        attrs = resp["Attributes"]
+        assert "a" in attrs
+        inner = attrs["a"]["M"]
+        assert inner["b"]["S"] == "orig-b"
+        assert inner["c"]["S"] == "orig-c"
+        assert "d" not in inner
+
+    def test_updated_new_remove_action(self, dynamodb_client, leaf_table):
+        """REMOVE attr with UPDATED_NEW does not include the removed attribute."""
+        dynamodb_client.put_item(
+            TableName=leaf_table,
+            Item={"pk": {"S": "remove-new"}, "a": {"S": "x"}, "b": {"S": "y"}},
+        )
+        resp = dynamodb_client.update_item(
+            TableName=leaf_table,
+            Key={"pk": {"S": "remove-new"}},
+            UpdateExpression="REMOVE a",
+            ReturnValues="UPDATED_NEW",
+        )
+        attrs = resp.get("Attributes", {})
+        # Removed attribute should not appear in UPDATED_NEW
+        assert "a" not in attrs
+
+    def test_updated_old_remove_action(self, dynamodb_client, leaf_table):
+        """REMOVE attr with UPDATED_OLD returns the old value of removed attribute."""
+        dynamodb_client.put_item(
+            TableName=leaf_table,
+            Item={"pk": {"S": "remove-old"}, "a": {"S": "was-here"}, "b": {"S": "y"}},
+        )
+        resp = dynamodb_client.update_item(
+            TableName=leaf_table,
+            Key={"pk": {"S": "remove-old"}},
+            UpdateExpression="REMOVE a",
+            ReturnValues="UPDATED_OLD",
+        )
+        attrs = resp["Attributes"]
+        assert attrs["a"]["S"] == "was-here"
+        assert "b" not in attrs
+
+    def test_updated_new_with_expression_attribute_names(
+        self, dynamodb_client, leaf_table
+    ):
+        """Nested path using #aliases resolves correctly for UPDATED_NEW."""
+        dynamodb_client.put_item(
+            TableName=leaf_table,
+            Item={
+                "pk": {"S": "alias-new"},
+                "data": {"M": {"status": {"S": "old"}, "count": {"N": "5"}}},
+            },
+        )
+        resp = dynamodb_client.update_item(
+            TableName=leaf_table,
+            Key={"pk": {"S": "alias-new"}},
+            UpdateExpression="SET #d.#s = :v",
+            ExpressionAttributeNames={"#d": "data", "#s": "status"},
+            ExpressionAttributeValues={":v": {"S": "active"}},
+            ReturnValues="UPDATED_NEW",
+        )
+        attrs = resp["Attributes"]
+        assert attrs["data"]["M"]["status"]["S"] == "active"
+        # Sibling 'count' should not be present
+        assert "count" not in attrs["data"]["M"]
+
+
+# ---------------------------------------------------------------------------
 # ExpressionAttributeNames/Values key syntax validation (02aaa51)
 # ---------------------------------------------------------------------------
 
