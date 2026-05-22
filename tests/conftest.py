@@ -20,6 +20,7 @@ import uuid
 import boto3
 import pytest
 import urllib3
+from botocore.config import Config
 
 # D4: Suppress InsecureRequestWarning for self-signed TLS certs from ``extenddb init``.
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -42,6 +43,23 @@ def dynamodb_client(endpoint_url: str | None):
     if endpoint_url:
         kwargs["endpoint_url"] = endpoint_url
         # D4: Self-signed certs from `extenddb init` — disable SSL verification.
+        if endpoint_url.startswith("https://"):
+            kwargs["verify"] = False
+    return boto3.client(**kwargs)
+@pytest.fixture(scope="session")
+def dynamodb_client_no_validation(endpoint_url: str | None):
+    """DynamoDB client with parameter validation disabled.
+
+    Use this when testing that the *service* rejects invalid parameters,
+    bypassing botocore's client-side validation.
+    """
+    kwargs: dict = {
+        "service_name": "dynamodb",
+        "region_name": os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
+        "config": Config(parameter_validation=False),
+    }
+    if endpoint_url:
+        kwargs["endpoint_url"] = endpoint_url
         if endpoint_url.startswith("https://"):
             kwargs["verify"] = False
     return boto3.client(**kwargs)

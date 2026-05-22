@@ -59,18 +59,16 @@ class TestCreateTable:
             create_and_cleanup_table(unique_table_name)
         assert exc_info.value.response["Error"]["Code"] == "ResourceInUseException"
 
-    def test_create_table_name_too_short(self, dynamodb_client):
-        # botocore validates table name min length (3) client-side, raising
-        # ParamValidationError before the request reaches the server.
-        from botocore.exceptions import ParamValidationError
-
-        with pytest.raises(ParamValidationError):
-            dynamodb_client.create_table(
+    def test_create_table_name_too_short(self, dynamodb_client_no_validation):
+        """Table name shorter than 3 chars is rejected by the service."""
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client_no_validation.create_table(
                 TableName="ab",
                 AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"}],
                 KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}],
                 BillingMode="PAY_PER_REQUEST",
             )
+        assert exc_info.value.response["Error"]["Code"] == "ValidationException"
 
     def test_create_table_invalid_characters(self, dynamodb_client):
         with pytest.raises(ClientError) as exc_info:
@@ -316,16 +314,16 @@ class TestUpdateTable:
         assert exc_info.value.response["Error"]["Code"] == "ValidationException"
 
     def test_update_table_zero_throughput(
-        self, create_and_cleanup_table, dynamodb_client, unique_table_name
+        self, create_and_cleanup_table, dynamodb_client_no_validation, unique_table_name
     ):
-        """UpdateTable with throughput=0 is rejected."""
+        """UpdateTable with throughput=0 is rejected by the service."""
         create_and_cleanup_table(
             unique_table_name,
             BillingMode="PROVISIONED",
             ProvisionedThroughput={"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
         )
         with pytest.raises(ClientError) as exc_info:
-            dynamodb_client.update_table(
+            dynamodb_client_no_validation.update_table(
                 TableName=unique_table_name,
                 ProvisionedThroughput={"ReadCapacityUnits": 0, "WriteCapacityUnits": 5},
             )

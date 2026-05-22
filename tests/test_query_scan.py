@@ -464,10 +464,10 @@ class TestQueryValidation:
 class TestScanValidation:
     """Scan validation edge cases from recent fixes."""
 
-    def test_scan_negative_segment(self, dynamodb_client, scan_table):
-        """Negative Segment value is rejected."""
+    def test_scan_negative_segment(self, dynamodb_client_no_validation, scan_table):
+        """Negative Segment value is rejected by the service."""
         with pytest.raises(ClientError) as exc_info:
-            dynamodb_client.scan(
+            dynamodb_client_no_validation.scan(
                 TableName=scan_table,
                 Segment=-1,
                 TotalSegments=3,
