@@ -950,3 +950,160 @@ class TestNumberSizing:
         )
         resp = dynamodb_client.get_item(TableName=size_table, Key={"pk": {"S": "many-nums"}})
         assert len(resp["Item"]["data"]["NS"]) == 99
+
+
+# ---------------------------------------------------------------------------
+# ExpressionAttributeNames/Values key syntax validation (02aaa51)
+# ---------------------------------------------------------------------------
+
+
+class TestExpressionAttributeKeySyntax:
+    """ExpressionAttributeNames keys must start with # and Values keys with :.
+
+    Uses dynamodb_client_no_validation to bypass botocore's client-side checks.
+    """
+
+    @pytest.fixture(scope="class")
+    def syntax_table(self, dynamodb_client):
+        with scoped_table(dynamodb_client) as name:
+            dynamodb_client.put_item(
+                TableName=name, Item={"pk": {"S": "item1"}, "v": {"S": "val"}},
+            )
+            yield name
+
+    # --- ExpressionAttributeNames without # prefix ---
+
+    def test_put_item_names_without_hash_rejected(
+        self, dynamodb_client_no_validation, syntax_table
+    ):
+        """PutItem with ExpressionAttributeNames key missing # is rejected."""
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client_no_validation.put_item(
+                TableName=syntax_table,
+                Item={"pk": {"S": "x"}},
+                ConditionExpression="attribute_not_exists(pk)",
+                ExpressionAttributeNames={"bad": "pk"},
+            )
+        err = exc_info.value.response["Error"]
+        assert err["Code"] == "ValidationException"
+        assert "Syntax error" in err["Message"]
+        assert "bad" in err["Message"]
+
+    def test_get_item_names_without_hash_rejected(
+        self, dynamodb_client_no_validation, syntax_table
+    ):
+        """GetItem with ExpressionAttributeNames key missing # is rejected."""
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client_no_validation.get_item(
+                TableName=syntax_table,
+                Key={"pk": {"S": "item1"}},
+                ProjectionExpression="v",
+                ExpressionAttributeNames={"nohash": "v"},
+            )
+        err = exc_info.value.response["Error"]
+        assert err["Code"] == "ValidationException"
+        assert "Syntax error" in err["Message"]
+
+    def test_update_item_names_without_hash_rejected(
+        self, dynamodb_client_no_validation, syntax_table
+    ):
+        """UpdateItem with ExpressionAttributeNames key missing # is rejected."""
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client_no_validation.update_item(
+                TableName=syntax_table,
+                Key={"pk": {"S": "item1"}},
+                UpdateExpression="SET v = :val",
+                ExpressionAttributeNames={"missing_hash": "v"},
+                ExpressionAttributeValues={":val": {"S": "new"}},
+            )
+        err = exc_info.value.response["Error"]
+        assert err["Code"] == "ValidationException"
+        assert "Syntax error" in err["Message"]
+
+    def test_delete_item_names_without_hash_rejected(
+        self, dynamodb_client_no_validation, syntax_table
+    ):
+        """DeleteItem with ExpressionAttributeNames key missing # is rejected."""
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client_no_validation.delete_item(
+                TableName=syntax_table,
+                Key={"pk": {"S": "item1"}},
+                ConditionExpression="attribute_exists(v)",
+                ExpressionAttributeNames={"nope": "v"},
+            )
+        err = exc_info.value.response["Error"]
+        assert err["Code"] == "ValidationException"
+        assert "Syntax error" in err["Message"]
+
+    # --- ExpressionAttributeValues without : prefix ---
+
+    def test_put_item_values_without_colon_rejected(
+        self, dynamodb_client_no_validation, syntax_table
+    ):
+        """PutItem with ExpressionAttributeValues key missing : is rejected."""
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client_no_validation.put_item(
+                TableName=syntax_table,
+                Item={"pk": {"S": "x"}},
+                ConditionExpression="attribute_not_exists(pk)",
+                ExpressionAttributeValues={"nocolon": {"S": "x"}},
+            )
+        err = exc_info.value.response["Error"]
+        assert err["Code"] == "ValidationException"
+        assert "Syntax error" in err["Message"]
+        assert "nocolon" in err["Message"]
+
+    def test_update_item_values_without_colon_rejected(
+        self, dynamodb_client_no_validation, syntax_table
+    ):
+        """UpdateItem with ExpressionAttributeValues key missing : is rejected."""
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client_no_validation.update_item(
+                TableName=syntax_table,
+                Key={"pk": {"S": "item1"}},
+                UpdateExpression="SET v = :val",
+                ExpressionAttributeValues={"val": {"S": "new"}},
+            )
+        err = exc_info.value.response["Error"]
+        assert err["Code"] == "ValidationException"
+        assert "Syntax error" in err["Message"]
+
+    def test_delete_item_values_without_colon_rejected(
+        self, dynamodb_client_no_validation, syntax_table
+    ):
+        """DeleteItem with ExpressionAttributeValues key missing : is rejected."""
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client_no_validation.delete_item(
+                TableName=syntax_table,
+                Key={"pk": {"S": "item1"}},
+                ConditionExpression="v = nocolon",
+                ExpressionAttributeValues={"nocolon": {"S": "val"}},
+            )
+        err = exc_info.value.response["Error"]
+        assert err["Code"] == "ValidationException"
+        assert "Syntax error" in err["Message"]
+
+    # --- Valid keys (positive tests) ---
+
+    def test_names_with_hash_accepted(self, dynamodb_client, syntax_table):
+        """ExpressionAttributeNames with proper # prefix works."""
+        resp = dynamodb_client.get_item(
+            TableName=syntax_table,
+            Key={"pk": {"S": "item1"}},
+            ProjectionExpression="#v",
+            ExpressionAttributeNames={"#v": "v"},
+        )
+        assert resp["Item"]["v"]["S"] == "val"
+
+    def test_values_with_colon_accepted(self, dynamodb_client, syntax_table):
+        """ExpressionAttributeValues with proper : prefix works."""
+        dynamodb_client.update_item(
+            TableName=syntax_table,
+            Key={"pk": {"S": "item1"}},
+            UpdateExpression="SET v = :val",
+            ExpressionAttributeValues={":val": {"S": "updated"}},
+        )
+        resp = dynamodb_client.get_item(
+            TableName=syntax_table, Key={"pk": {"S": "item1"}},
+        )
+        assert resp["Item"]["v"]["S"] == "updated"
