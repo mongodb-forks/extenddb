@@ -344,11 +344,15 @@ if $NEEDS_INTEGRATION && [[ "$TARGET" != "real-dynamodb" ]]; then
         fi
     fi
 
+    # Export EXTENDDB_CONFIG so tests (e.g. test_gsi_async) use the correct config file.
+    export EXTENDDB_CONFIG="$CONFIG_FOR_SETTINGS"
+
     # Export PG connection string for CLI lifecycle tests.
     # Extract from config, strip the database name to get the base URL.
+    # Only set if the connection string is a PostgreSQL URL (not MongoDB, etc.).
     if [[ -z "${EXTENDDB_TEST_PG_CONNECTION_STRING:-}" && -f "$CONFIG_FOR_SETTINGS" ]]; then
         FULL_CONN=$(grep 'connection_string' "$CONFIG_FOR_SETTINGS" | sed -n 's/.*connection_string[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
-        if [[ -n "$FULL_CONN" ]]; then
+        if [[ -n "$FULL_CONN" && "$FULL_CONN" == postgres* ]]; then
             # Strip trailing /database_name to get base URL
             export EXTENDDB_TEST_PG_CONNECTION_STRING="${FULL_CONN%/*}"
             echo "  ✓ EXTENDDB_TEST_PG_CONNECTION_STRING=${EXTENDDB_TEST_PG_CONNECTION_STRING}"
