@@ -258,17 +258,9 @@ pub(crate) fn validate_path_parent(
             }
             return Ok(path.to_path_buf());
         }
-        let parent_meta = std::fs::symlink_metadata(parent).map_err(|_| {
-            DynamoDbError::ValidationException(
-                "Parent directory does not exist or is not accessible".to_owned(),
-            )
-        })?;
-        if parent_meta.file_type().is_symlink() {
-            return Err(DynamoDbError::ValidationException(
-                "Symbolic links are not allowed in import/export paths".to_owned(),
-            ));
-        }
         // Jail check: canonicalize parent and verify it's under at least one root.
+        // Note: we don't reject symlinked parents (e.g. /tmp -> /private/tmp on macOS)
+        // because the canonicalized jail check already prevents traversal escapes.
         if !jail_roots.is_empty() {
             let canonical_parent = parent.canonicalize().map_err(|_| {
                 DynamoDbError::ValidationException(

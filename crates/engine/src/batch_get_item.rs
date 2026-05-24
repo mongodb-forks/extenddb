@@ -141,9 +141,7 @@ pub async fn handle_batch_get_item(
         for key in &ka.keys {
             let key_bytes = serialize_key_for_dedup(key);
             if !seen_keys.insert(key_bytes) {
-                return Err(DynamoDbError::ValidationException(
-                    "Provided list of item keys contains duplicates".to_owned(),
-                ));
+                continue;
             }
             validate_batch_key_only(key, &key_info.key_schema, &key_info.attribute_definitions)?;
 

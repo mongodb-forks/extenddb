@@ -42,9 +42,9 @@ async fn validate_resource_arn(arn: &str, ctx: &OperationContext) -> Result<(), 
     // Check the ARN's account matches the caller's account.
     if let Some(arn_account) = extract_account_from_arn(arn) {
         if arn_account != ctx.account_id.as_ref() {
-            return Err(DynamoDbError::AccessDeniedException(
-                "Access is denied".to_owned(),
-            ));
+            return Err(DynamoDbError::ResourceNotFoundException(format!(
+                "Requested resource not found: {arn}"
+            )));
         }
     }
 

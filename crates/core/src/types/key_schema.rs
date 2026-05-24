@@ -27,7 +27,7 @@ impl<'de> serde::Deserialize<'de> for KeyType {
             "HASH" => Ok(Self::Hash),
             "RANGE" => Ok(Self::Range),
             other => Err(serde::de::Error::custom(format!(
-                "1 validation error detected: Value '{other}' at 'keySchema.1.member.keyType' \
+                "Value '{other}' at 'keySchema.1.member.keyType' \
                  failed to satisfy constraint: Member must satisfy enum value set: [HASH, RANGE]"
             ))),
         }
