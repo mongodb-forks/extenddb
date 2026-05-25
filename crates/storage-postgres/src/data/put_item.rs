@@ -9,11 +9,12 @@ use extenddb_storage::StreamCapture;
 use extenddb_storage::error::StorageError;
 use extenddb_storage::util::{composite_pk_to_text, parse_sk, pk_to_text, sk_column, sk_info};
 
-use super::index::{enqueue_async_indexes, fetch_indexes_for_table, pk_hash, sync_indexes};
+use super::index::{fetch_indexes_for_table, has_async_indexes, sync_indexes};
 use super::query::check_condition;
 use super::tx_helpers::write_stream_record_in_tx;
 use super::{data_table_name, json_to_item};
 use crate::PostgresEngine;
+use crate::gsi_queue::enqueue_gsi_pending;
 
 impl PostgresEngine {
     /// Implementation of `DataEngine::put_item`.
@@ -146,26 +147,24 @@ impl PostgresEngine {
                     )
                     .await?;
                 }
-                tx.commit()
-                    .await
-                    .map_err(|e| StorageError::Internal(e.to_string()))?;
-
-                // Enqueue async GSI updates after commit (D-4).
-                if let Some(ref q) = self.gsi_queue {
-                    enqueue_async_indexes(
-                        q,
-                        pk_hash(pk_text.as_str()),
-                        &key_info.account_id,
-                        &key_info.table_name,
+                // Persist async GSI work inside the same transaction.
+                if has_async_indexes(&indexes, sys_delay) {
+                    enqueue_gsi_pending(
+                        &mut tx,
                         &key_info.table_id,
-                        &key_info.key_schema,
-                        &key_info.attribute_definitions,
-                        &indexes,
                         old_item_for_idx.as_ref(),
                         Some(&item),
                         sys_delay,
                     )
-                    .await;
+                    .await?;
+                }
+
+                tx.commit()
+                    .await
+                    .map_err(|e| StorageError::Internal(e.to_string()))?;
+
+                if let Some(ref q) = self.gsi_queue {
+                    q.notify_workers();
                 }
 
                 if return_old {
@@ -291,26 +290,24 @@ impl PostgresEngine {
                     )
                     .await?;
                 }
-                tx.commit()
-                    .await
-                    .map_err(|e| StorageError::Internal(e.to_string()))?;
-
-                // Enqueue async GSI updates after commit (D-4).
-                if let Some(ref q) = self.gsi_queue {
-                    enqueue_async_indexes(
-                        q,
-                        pk_hash(pk_text.as_str()),
-                        &key_info.account_id,
-                        &key_info.table_name,
+                // Persist async GSI work inside the same transaction.
+                if has_async_indexes(&indexes, sys_delay) {
+                    enqueue_gsi_pending(
+                        &mut tx,
                         &key_info.table_id,
-                        &key_info.key_schema,
-                        &key_info.attribute_definitions,
-                        &indexes,
                         old_item_for_idx.as_ref(),
                         Some(&item),
                         sys_delay,
                     )
-                    .await;
+                    .await?;
+                }
+
+                tx.commit()
+                    .await
+                    .map_err(|e| StorageError::Internal(e.to_string()))?;
+
+                if let Some(ref q) = self.gsi_queue {
+                    q.notify_workers();
                 }
 
                 if return_old {

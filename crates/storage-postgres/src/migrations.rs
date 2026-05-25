@@ -53,6 +53,15 @@ pub(crate) async fn run_data_migrations(pool: &PgPool) -> OpResult<()> {
             .map_err(|e| OpError::Internal(format!("Data migration failed: {e}")))?;
         println!("    Data schema initialized.");
     }
+
+    // 002: Persistent GSI propagation queue (idempotent).
+    let gsi_pending_sql =
+        include_str!("../../storage-postgres/data_migrations/002_gsi_pending.sql");
+    sqlx::raw_sql(gsi_pending_sql)
+        .execute(pool)
+        .await
+        .map_err(|e| OpError::Internal(format!("GSI pending migration failed: {e}")))?;
+
     Ok(())
 }
 

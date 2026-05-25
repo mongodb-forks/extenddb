@@ -11,17 +11,15 @@ use extenddb_core::types::{
 };
 use extenddb_core::validation;
 use extenddb_storage::error::StorageError;
-use extenddb_storage::util::pk_to_text;
 use extenddb_storage::{TransactGetOp, TransactWriteOp};
 
-use super::index::{
-    IndexMeta, enqueue_async_indexes, fetch_indexes_for_table, pk_hash, sync_indexes,
-};
+use super::index::{IndexMeta, fetch_indexes_for_table, has_async_indexes, sync_indexes};
 use super::tx_helpers::{
     check_idempotency_token_in_tx, delete_item_in_tx, fetch_item_for_update, fetch_item_in_tx,
     upsert_item_in_tx, write_stream_record_in_tx,
 };
 use crate::PostgresEngine;
+use crate::gsi_queue::enqueue_gsi_pending;
 
 impl PostgresEngine {
     /// Implementation of `DataEngine::transact_get_items`.
@@ -164,50 +162,41 @@ impl PostgresEngine {
             }
         }
 
+        // Persist async GSI work inside the transaction.
+        let mut needs_notify = false;
+        for (op, (old_item, new_item)) in ops.iter().zip(op_items.iter()) {
+            let indexes = &table_indexes[transact_op_table_name(op)];
+            if !has_async_indexes(indexes, sys_delay) {
+                continue;
+            }
+            let key_info = match op {
+                TransactWriteOp::Put { key_info, .. }
+                | TransactWriteOp::Delete { key_info, .. }
+                | TransactWriteOp::Update { key_info, .. }
+                | TransactWriteOp::ConditionCheck { key_info, .. } => key_info,
+            };
+            // ConditionCheck — no index changes.
+            if old_item.is_none() && new_item.is_none() {
+                continue;
+            }
+            enqueue_gsi_pending(
+                &mut tx,
+                &key_info.table_id,
+                old_item.as_ref(),
+                new_item.as_ref(),
+                sys_delay,
+            )
+            .await?;
+            needs_notify = true;
+        }
+
         tx.commit()
             .await
             .map_err(|e| StorageError::Internal(e.to_string()))?;
 
-        // D-4: Enqueue async GSI updates after commit using the old/new items
-        // collected during transaction execution (M-3 fix).
-        if let Some(ref q) = self.gsi_queue {
-            for (op, (old_item, new_item)) in ops.iter().zip(op_items.iter()) {
-                let indexes = &table_indexes[transact_op_table_name(op)];
-                if indexes.is_empty() {
-                    continue;
-                }
-                let key_info = match op {
-                    TransactWriteOp::Put { key_info, .. }
-                    | TransactWriteOp::Delete { key_info, .. }
-                    | TransactWriteOp::Update { key_info, .. }
-                    | TransactWriteOp::ConditionCheck { key_info, .. } => key_info,
-                };
-                let pk_name = &key_info.key_schema[0].attribute_name;
-                // Derive pk_text from whichever item is available.
-                let pk_item = new_item.as_ref().or(old_item.as_ref());
-                let Some(pk_item) = pk_item else { continue }; // ConditionCheck — no index changes
-                let pk_value = match pk_item.get(pk_name) {
-                    Some(v) => v,
-                    None => continue,
-                };
-                let pk_text = match pk_to_text(pk_value) {
-                    Ok(t) => t,
-                    Err(_) => continue,
-                };
-                enqueue_async_indexes(
-                    q,
-                    pk_hash(&pk_text),
-                    &key_info.account_id,
-                    &key_info.table_name,
-                    &key_info.table_id,
-                    &key_info.key_schema,
-                    &key_info.attribute_definitions,
-                    indexes,
-                    old_item.as_ref(),
-                    new_item.as_ref(),
-                    sys_delay,
-                )
-                .await;
+        if needs_notify {
+            if let Some(ref q) = self.gsi_queue {
+                q.notify_workers();
             }
         }
 

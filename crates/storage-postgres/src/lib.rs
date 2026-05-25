@@ -233,7 +233,11 @@ impl PostgresEngine {
     /// Must be called after construction, before serving requests.
     /// Returns `&Self` for chaining.
     pub fn start_gsi_workers(mut self) -> Self {
-        self.gsi_queue = Some(gsi_queue::GsiQueue::spawn(self.data_pool.clone()));
+        self.gsi_queue = Some(gsi_queue::GsiQueue::spawn(
+            self.data_pool.clone(),
+            self.pool.clone(),
+            self.gsi_default_delay_ms.clone(),
+        ));
         self
     }
 

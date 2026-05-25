@@ -18,7 +18,7 @@ use super::{all_sort_key_info, index_table_name};
 
 /// Metadata for a single index, used during write-path GSI/LSI sync.
 pub(crate) struct IndexMeta {
-    pub(super) index_name: String,
+    pub(super) _index_name: String,
     pub(super) index_id: String,
     pub(super) index_type: String,
     pub(super) key_schema: Vec<KeySchemaElement>,
@@ -48,7 +48,7 @@ pub(crate) async fn fetch_indexes_for_table(
             let projection: Projection = serde_json::from_value(proj_json)
                 .map_err(|e| StorageError::Internal(e.to_string()))?;
             Ok(IndexMeta {
-                index_name: name,
+                _index_name: name,
                 index_id: id,
                 index_type: idx_type,
                 key_schema,
@@ -175,56 +175,14 @@ pub(crate) async fn sync_indexes(
     Ok(())
 }
 
-/// Enqueue async GSI updates for indexes with non-zero propagation delay.
+/// Check whether any indexes require async propagation.
 ///
-/// Called after the base table transaction commits. The queue workers apply
-/// the index updates after a random delay within the configured range.
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn enqueue_async_indexes(
-    gsi_queue: &crate::gsi_queue::GsiQueue,
-    pk_hash: u64,
-    account_id: &str,
-    table_name: &str,
-    table_id: &str,
-    base_key_schema: &[KeySchemaElement],
-    attr_defs: &[AttributeDefinition],
-    indexes: &[IndexMeta],
-    old_item: Option<&Item>,
-    new_item: Option<&Item>,
-    system_default_delay: u64,
-) {
-    for idx in indexes {
-        let delay = effective_delay(idx, system_default_delay);
-        if delay == 0 {
-            continue; // Sync — already handled in transaction.
-        }
-        if idx.index_type == "LSI" {
-            continue; // LSIs are always synchronous — already handled in transaction.
-        }
-        gsi_queue
-            .enqueue(
-                pk_hash,
-                account_id,
-                table_name,
-                table_id,
-                base_key_schema,
-                attr_defs,
-                &idx.index_name,
-                &idx.index_id,
-                &idx.key_schema,
-                &idx.projection,
-                old_item,
-                new_item,
-                delay,
-            )
-            .await;
-    }
-}
-
-/// Compute a hash of the partition key text for queue partitioning.
-/// Uses crc32 for stability across Rust versions (DefaultHasher is not stable).
-pub(crate) fn pk_hash(pk_text: &str) -> u64 {
-    u64::from(crc32fast::hash(pk_text.as_bytes()))
+/// Returns `true` if at least one GSI has a non-zero effective delay,
+/// meaning the write should insert a row into `gsi_pending`.
+pub(crate) fn has_async_indexes(indexes: &[IndexMeta], system_default_delay: u64) -> bool {
+    indexes
+        .iter()
+        .any(|idx| idx.index_type != "LSI" && effective_delay(idx, system_default_delay) != 0)
 }
 
 /// Delete a row from an index table using base table key columns.
