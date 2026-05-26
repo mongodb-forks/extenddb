@@ -59,18 +59,16 @@ class TestCreateTable:
             create_and_cleanup_table(unique_table_name)
         assert exc_info.value.response["Error"]["Code"] == "ResourceInUseException"
 
-    def test_create_table_name_too_short(self, dynamodb_client):
-        # botocore validates table name min length (3) client-side, raising
-        # ParamValidationError before the request reaches the server.
-        from botocore.exceptions import ParamValidationError
-
-        with pytest.raises(ParamValidationError):
-            dynamodb_client.create_table(
+    def test_create_table_name_too_short(self, dynamodb_client_no_validation):
+        """Table name shorter than 3 chars is rejected by the service."""
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client_no_validation.create_table(
                 TableName="ab",
                 AttributeDefinitions=[{"AttributeName": "pk", "AttributeType": "S"}],
                 KeySchema=[{"AttributeName": "pk", "KeyType": "HASH"}],
                 BillingMode="PAY_PER_REQUEST",
             )
+        assert exc_info.value.response["Error"]["Code"] == "ValidationException"
 
     def test_create_table_invalid_characters(self, dynamodb_client):
         with pytest.raises(ClientError) as exc_info:
@@ -176,3 +174,188 @@ class TestDeleteTable:
             TableName=unique_table_name,
             DeletionProtectionEnabled=False,
         )
+
+
+# ---------------------------------------------------------------------------
+# CreateTable validation additions (covers commits since 6b98234dcf)
+# ---------------------------------------------------------------------------
+
+
+class TestCreateTableValidation:
+    """CreateTable validation edge cases from recent fixes."""
+
+    def test_create_table_duplicate_key_schema(self, dynamodb_client):
+        """CreateTable with duplicate attribute in KeySchema is rejected."""
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client.create_table(
+                TableName=f"extenddb-test-{__import__('uuid').uuid4().hex[:8]}",
+                AttributeDefinitions=[
+                    {"AttributeName": "pk", "AttributeType": "S"},
+                ],
+                KeySchema=[
+                    {"AttributeName": "pk", "KeyType": "HASH"},
+                    {"AttributeName": "pk", "KeyType": "RANGE"},
+                ],
+                BillingMode="PAY_PER_REQUEST",
+            )
+        assert exc_info.value.response["Error"]["Code"] == "ValidationException"
+
+    def test_create_table_three_key_schema_elements(self, dynamodb_client):
+        """CreateTable with >2 KeySchema elements is rejected."""
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client.create_table(
+                TableName=f"extenddb-test-{__import__('uuid').uuid4().hex[:8]}",
+                AttributeDefinitions=[
+                    {"AttributeName": "pk", "AttributeType": "S"},
+                    {"AttributeName": "sk", "AttributeType": "S"},
+                    {"AttributeName": "extra", "AttributeType": "S"},
+                ],
+                KeySchema=[
+                    {"AttributeName": "pk", "KeyType": "HASH"},
+                    {"AttributeName": "sk", "KeyType": "RANGE"},
+                    {"AttributeName": "extra", "KeyType": "RANGE"},
+                ],
+                BillingMode="PAY_PER_REQUEST",
+            )
+        assert exc_info.value.response["Error"]["Code"] == "ValidationException"
+
+    def test_create_table_lsi_without_range_key(self, dynamodb_client):
+        """CreateTable with LSI on a hash-only table is rejected."""
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client.create_table(
+                TableName=f"extenddb-test-{__import__('uuid').uuid4().hex[:8]}",
+                AttributeDefinitions=[
+                    {"AttributeName": "pk", "AttributeType": "S"},
+                    {"AttributeName": "lsi_sk", "AttributeType": "N"},
+                ],
+                KeySchema=[
+                    {"AttributeName": "pk", "KeyType": "HASH"},
+                ],
+                LocalSecondaryIndexes=[
+                    {
+                        "IndexName": "bad-lsi",
+                        "KeySchema": [
+                            {"AttributeName": "pk", "KeyType": "HASH"},
+                            {"AttributeName": "lsi_sk", "KeyType": "RANGE"},
+                        ],
+                        "Projection": {"ProjectionType": "ALL"},
+                    },
+                ],
+                BillingMode="PAY_PER_REQUEST",
+            )
+        assert exc_info.value.response["Error"]["Code"] == "ValidationException"
+
+    def test_create_table_invalid_billing_mode(self, dynamodb_client):
+        """CreateTable with invalid BillingMode string is rejected."""
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client.create_table(
+                TableName=f"extenddb-test-{__import__('uuid').uuid4().hex[:8]}",
+                AttributeDefinitions=[
+                    {"AttributeName": "pk", "AttributeType": "S"},
+                ],
+                KeySchema=[
+                    {"AttributeName": "pk", "KeyType": "HASH"},
+                ],
+                BillingMode="INVALID_MODE",
+            )
+        assert exc_info.value.response["Error"]["Code"] == "ValidationException"
+
+
+# ---------------------------------------------------------------------------
+# ListTables sort order
+# ---------------------------------------------------------------------------
+
+
+class TestListTablesOrder:
+    """ListTables returns tables in alphabetical order."""
+
+    def test_list_tables_alphabetical_order(self, create_and_cleanup_table, dynamodb_client):
+        """Tables are returned in alphabetical (lexicographic) order."""
+        # Create tables with names that sort in a known order.
+        prefix = f"extenddb-order-{uuid.uuid4().hex[:4]}"
+        names = [f"{prefix}-charlie", f"{prefix}-alpha", f"{prefix}-bravo"]
+        for name in names:
+            create_and_cleanup_table(name)
+
+        # Collect all tables.
+        collected: list[str] = []
+        kwargs: dict = {}
+        while True:
+            result = dynamodb_client.list_tables(**kwargs)
+            collected.extend(result["TableNames"])
+            if "LastEvaluatedTableName" not in result:
+                break
+            kwargs["ExclusiveStartTableName"] = result["LastEvaluatedTableName"]
+
+        # Filter to just our test tables.
+        our_tables = [t for t in collected if t.startswith(prefix)]
+        assert our_tables == sorted(our_tables)
+
+
+# ---------------------------------------------------------------------------
+# UpdateTable validation
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateTable:
+    """UpdateTable validation edge cases from recent fixes."""
+
+    def test_update_table_pay_per_request_with_throughput(
+        self, create_and_cleanup_table, dynamodb_client, unique_table_name
+    ):
+        """UpdateTable with PAY_PER_REQUEST + ProvisionedThroughput is rejected."""
+        create_and_cleanup_table(unique_table_name)
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client.update_table(
+                TableName=unique_table_name,
+                BillingMode="PAY_PER_REQUEST",
+                ProvisionedThroughput={"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+            )
+        assert exc_info.value.response["Error"]["Code"] == "ValidationException"
+
+    def test_update_table_zero_throughput(
+        self, create_and_cleanup_table, dynamodb_client_no_validation, unique_table_name
+    ):
+        """UpdateTable with throughput=0 is rejected by the service."""
+        create_and_cleanup_table(
+            unique_table_name,
+            BillingMode="PROVISIONED",
+            ProvisionedThroughput={"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+        )
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client_no_validation.update_table(
+                TableName=unique_table_name,
+                ProvisionedThroughput={"ReadCapacityUnits": 0, "WriteCapacityUnits": 5},
+            )
+        assert exc_info.value.response["Error"]["Code"] == "ValidationException"
+
+    def test_update_table_remove_nonexistent_gsi(
+        self, create_and_cleanup_table, dynamodb_client, unique_table_name
+    ):
+        """UpdateTable trying to delete a GSI that doesn't exist is rejected."""
+        create_and_cleanup_table(unique_table_name)
+        with pytest.raises(ClientError) as exc_info:
+            dynamodb_client.update_table(
+                TableName=unique_table_name,
+                GlobalSecondaryIndexUpdates=[
+                    {"Delete": {"IndexName": "nonexistent-gsi"}},
+                ],
+            )
+        err = exc_info.value.response["Error"]
+        assert err["Code"] == "ValidationException" or err["Code"] == "ResourceNotFoundException"
+
+    def test_update_table_billing_mode_switch(
+        self, create_and_cleanup_table, dynamodb_client, unique_table_name
+    ):
+        """Switch from PROVISIONED to PAY_PER_REQUEST succeeds."""
+        create_and_cleanup_table(
+            unique_table_name,
+            BillingMode="PROVISIONED",
+            ProvisionedThroughput={"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+        )
+        resp = dynamodb_client.update_table(
+            TableName=unique_table_name,
+            BillingMode="PAY_PER_REQUEST",
+        )
+        # Should succeed — the table transitions billing mode.
+        assert resp["TableDescription"]["TableName"] == unique_table_name

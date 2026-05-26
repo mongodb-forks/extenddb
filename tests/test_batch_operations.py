@@ -14,45 +14,40 @@ import uuid
 import pytest
 from botocore.exceptions import ClientError
 
-from conftest import wait_for_active
-@pytest.fixture()
-def hash_table(dynamodb_client, create_and_cleanup_table, unique_table_name):
-    """Create a hash-only table and wait for ACTIVE."""
-    create_and_cleanup_table(unique_table_name)
-    wait_for_active(dynamodb_client, unique_table_name)
-    return unique_table_name
-@pytest.fixture()
-def hash_range_table(dynamodb_client, create_and_cleanup_table):
-    """Create a hash+range (S,S) table and wait for ACTIVE."""
-    name = f"extenddb-test-{uuid.uuid4().hex[:12]}"
-    create_and_cleanup_table(
-        name,
-        AttributeDefinitions=[
+from conftest import wait_for_active, scoped_table
+@pytest.fixture(scope="class")
+def hash_table(dynamodb_client):
+    """Create a hash-only table for the class, delete on teardown."""
+    with scoped_table(dynamodb_client) as name:
+        yield name
+@pytest.fixture(scope="class")
+def hash_range_table(dynamodb_client):
+    """Create a hash+range (S,S) table for the class, delete on teardown."""
+    with scoped_table(
+        dynamodb_client,
+        attribute_definitions=[
             {"AttributeName": "pk", "AttributeType": "S"},
             {"AttributeName": "sk", "AttributeType": "S"},
         ],
-        KeySchema=[
+        key_schema=[
             {"AttributeName": "pk", "KeyType": "HASH"},
             {"AttributeName": "sk", "KeyType": "RANGE"},
         ],
-    )
-    wait_for_active(dynamodb_client, name)
-    return name
-@pytest.fixture()
-def second_table(dynamodb_client, create_and_cleanup_table):
+    ) as name:
+        yield name
+@pytest.fixture(scope="class")
+def second_table(dynamodb_client):
     """Create a second hash-only table for cross-table batch tests."""
-    name = f"extenddb-test-{uuid.uuid4().hex[:12]}"
-    create_and_cleanup_table(
-        name,
-        AttributeDefinitions=[
+    with scoped_table(
+        dynamodb_client,
+        attribute_definitions=[
             {"AttributeName": "id", "AttributeType": "S"},
         ],
-        KeySchema=[
+        key_schema=[
             {"AttributeName": "id", "KeyType": "HASH"},
         ],
-    )
-    wait_for_active(dynamodb_client, name)
-    return name
+    ) as name:
+        yield name
 # ── BatchGetItem ──────────────────────────────────────────────────────
 class TestBatchGetItem:
     """Tests for the BatchGetItem operation."""

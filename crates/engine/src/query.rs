@@ -13,7 +13,7 @@ use extenddb_core::expression::{
     ExpressionMaps, parse_key_condition, parse_projection, tokenize_for,
 };
 use extenddb_core::types::{
-    IndexType, KeyType, QueryInput, QueryOutput, Select, TableKeyInfo, item_size_bytes,
+    IndexType, KeyType, QueryInput, QueryOutput, Select, TableKeyInfo, extract_key, item_size_bytes,
 };
 
 use crate::OperationContext;
@@ -353,6 +353,18 @@ pub async fn handle_query(
         ExpressionMaps::new(names, values)
     };
 
+    // Validate ExclusiveStartKey matches the key schema
+    if let Some(ref start_key) = input.exclusive_start_key {
+        let required = combined_lek_key_schema(&key_info.key_schema, index_info.as_ref());
+        for ks in &required {
+            if !start_key.contains_key(&ks.attribute_name) {
+                return Err(DynamoDbError::ValidationException(
+                    "The provided starting key is invalid".to_owned(),
+                ));
+            }
+        }
+    }
+
     // Query storage
     let (raw_items, storage_last_key) = ctx
         .storage
@@ -377,10 +389,19 @@ pub async fn handle_query(
     // For index queries, the LEK includes both the index key and the base table key.
     let lek_key_schema = combined_lek_key_schema(&key_info.key_schema, index_info.as_ref());
 
+    // For index queries, enrich the storage LEK with base table key attributes.
+    let enriched_storage_last_key = if storage_last_key.is_some() && index_info.is_some() {
+        raw_items
+            .last()
+            .map(|item| extract_key(item, &lek_key_schema))
+    } else {
+        storage_last_key
+    };
+
     // Apply FilterExpression, ProjectionExpression, and 1 MB limit
     let result = apply_post_read(
         &raw_items,
-        storage_last_key,
+        enriched_storage_last_key,
         &filter,
         &projection,
         &combined_maps,

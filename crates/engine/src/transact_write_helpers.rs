@@ -86,8 +86,7 @@ impl PreparedOp {
                 // Use key size + expression attribute values size as a better
                 // approximation of the data involved in the update.
                 let key_size = extenddb_core::types::item_size_bytes(key);
-                let values_size: usize =
-                    maps.values.values().map(attribute_value_size).sum();
+                let values_size: usize = maps.values.values().map(attribute_value_size).sum();
                 key_size + values_size
             }
         }

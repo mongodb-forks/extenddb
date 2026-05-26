@@ -462,10 +462,9 @@ pub fn validate_put_item(
 
     let size = item_size_bytes(&input.item);
     if size > limits.max_item_size_bytes {
-        return Err(DynamoDbError::ValidationException(format!(
-            "Item size has exceeded the maximum allowed size of {}",
-            limits.max_item_size_bytes
-        )));
+        return Err(DynamoDbError::ValidationException(
+            "Item size has exceeded the maximum allowed size".to_owned(),
+        ));
     }
 
     validate_key_sizes(&input.item, key_schema, limits)?;
@@ -774,9 +773,9 @@ fn key_value_byte_size(value: &AttributeValue) -> usize {
 pub fn validate_item_size(item: &Item, max_bytes: usize) -> Result<(), DynamoDbError> {
     let size = item_size_bytes(item);
     if size > max_bytes {
-        return Err(DynamoDbError::ValidationException(format!(
-            "Item size has exceeded the maximum allowed size of {max_bytes}"
-        )));
+        return Err(DynamoDbError::ValidationException(
+            "Item size has exceeded the maximum allowed size".to_owned(),
+        ));
     }
     Ok(())
 }
@@ -910,7 +909,10 @@ mod tests {
 
     #[test]
     fn multipart_table_keys_allowed_when_enabled() {
-        let limits = LimitsConfig { allow_multipart_table_keys: true, ..Default::default() };
+        let limits = LimitsConfig {
+            allow_multipart_table_keys: true,
+            ..Default::default()
+        };
         let input = base_input(
             vec![
                 make_ks("pk1", KeyType::Hash),
@@ -1078,7 +1080,10 @@ mod tests {
 
     #[test]
     fn attribute_name_exceeding_limit_rejected() {
-        let limits = LimitsConfig { max_attribute_name_bytes: 10, ..Default::default() };
+        let limits = LimitsConfig {
+            max_attribute_name_bytes: 10,
+            ..Default::default()
+        };
         let mut item = Item::new();
         item.insert("a".repeat(11), AttributeValue::S("v".to_owned()));
         let err = validate_attribute_name_sizes(&item, &limits).unwrap_err();

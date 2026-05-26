@@ -10,14 +10,14 @@ use serde_json::Value;
 use extenddb_core::error::DynamoDbError;
 use extenddb_core::expression::{ExpressionMaps, parse_projection, tokenize_with_limit};
 use extenddb_core::types::{
-    IndexType, ScanInput, ScanOutput, Select, TableKeyInfo, item_size_bytes,
+    IndexType, ScanInput, ScanOutput, Select, TableKeyInfo, extract_key, item_size_bytes,
 };
 
 use crate::OperationContext;
 use crate::capacity_helpers;
 use crate::create_table::storage_err_to_dynamo;
 use crate::expression_helpers::{build_expression_maps, parse_optional_filter};
-use crate::index_helpers::combined_lek_key_schema;
+use crate::index_helpers::{combined_lek_key_schema, validate_scan_exclusive_start_key};
 use crate::legacy_filter::desugar_filter;
 use crate::read_helpers::apply_post_read;
 use crate::serialize_output;
@@ -267,6 +267,11 @@ pub async fn handle_scan(
         ExpressionMaps::new(names, values)
     };
 
+    // Validate ExclusiveStartKey matches the key schema
+    if let Some(ref start_key) = input.exclusive_start_key {
+        validate_scan_exclusive_start_key(start_key, &key_info, index_info.as_ref())?;
+    }
+
     // Scan storage
     let (raw_items, storage_last_key) = ctx
         .storage
@@ -289,10 +294,21 @@ pub async fn handle_scan(
     // Determine which key schema to use for LastEvaluatedKey extraction.
     let lek_key_schema = combined_lek_key_schema(&key_info.key_schema, index_info.as_ref());
 
+    // For index scans, the storage layer returns a LEK with only the index key
+    // attributes. Enrich it with the base table key attributes from the last
+    // raw item so the LEK matches DynamoDB's format (all combined keys).
+    let enriched_storage_last_key = if storage_last_key.is_some() && index_info.is_some() {
+        raw_items
+            .last()
+            .map(|item| extract_key(item, &lek_key_schema))
+    } else {
+        storage_last_key
+    };
+
     // Apply FilterExpression, ProjectionExpression, and 1 MB limit
     let result = apply_post_read(
         &raw_items,
-        storage_last_key,
+        enriched_storage_last_key,
         &filter,
         &projection,
         &combined_maps,

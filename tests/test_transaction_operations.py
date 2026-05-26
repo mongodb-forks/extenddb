@@ -11,13 +11,12 @@ from __future__ import annotations
 import pytest
 from botocore.exceptions import ClientError
 
-from conftest import wait_for_active
-@pytest.fixture()
-def hash_table(dynamodb_client, create_and_cleanup_table, unique_table_name):
-    """Create a hash-only table and wait for ACTIVE."""
-    create_and_cleanup_table(unique_table_name)
-    wait_for_active(dynamodb_client, unique_table_name)
-    return unique_table_name
+from conftest import wait_for_active, scoped_table
+@pytest.fixture(scope="module")
+def hash_table(dynamodb_client):
+    """Create a hash-only table for the module, delete on teardown."""
+    with scoped_table(dynamodb_client) as name:
+        yield name
 # ---------------------------------------------------------------------------
 # TransactWriteItems — happy paths
 # ---------------------------------------------------------------------------
@@ -326,3 +325,50 @@ def test_transact_write_conditional_put_fail(dynamodb_client, hash_table):
     # Original item unchanged
     resp = dynamodb_client.get_item(TableName=hash_table, Key={"pk": {"S": "cp-2"}})
     assert resp["Item"]["v"]["S"] == "old"
+
+
+# ---------------------------------------------------------------------------
+# TransactWriteItems — size limit and condition edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_transact_write_total_size_exceeds_4mb(dynamodb_client, hash_table):
+    """TransactWriteItems with total item size > 4MB is rejected."""
+    # Each item is ~400KB, 11 items = ~4.4MB > 4MB limit.
+    items = []
+    for i in range(11):
+        items.append({
+            "Put": {
+                "TableName": hash_table,
+                "Item": {
+                    "pk": {"S": f"big-{i}"},
+                    "data": {"S": "x" * (390 * 1024)},
+                },
+            }
+        })
+    with pytest.raises(ClientError) as exc_info:
+        dynamodb_client.transact_write_items(TransactItems=items)
+    assert exc_info.value.response["Error"]["Code"] == "ValidationException"
+
+
+def test_transact_write_condition_on_nonexistent_item(dynamodb_client, hash_table):
+    """ConditionCheck with attribute_not_exists on missing item passes."""
+    dynamodb_client.transact_write_items(
+        TransactItems=[
+            {
+                "ConditionCheck": {
+                    "TableName": hash_table,
+                    "Key": {"pk": {"S": "tw-ghost-check"}},
+                    "ConditionExpression": "attribute_not_exists(pk)",
+                }
+            },
+            {
+                "Put": {
+                    "TableName": hash_table,
+                    "Item": {"pk": {"S": "tw-after-ghost"}, "v": {"S": "ok"}},
+                }
+            },
+        ]
+    )
+    resp = dynamodb_client.get_item(TableName=hash_table, Key={"pk": {"S": "tw-after-ghost"}})
+    assert resp["Item"]["v"]["S"] == "ok"

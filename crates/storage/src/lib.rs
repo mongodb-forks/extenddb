@@ -356,9 +356,7 @@ pub trait MetadataEngine: Send + Sync {
     ) -> BoxFuture<'_, Result<Vec<(String, String)>, StorageError>>;
 
     /// List all tables with TTL enabled across all accounts: `(account_id, table_name, ttl_attribute)`.
-    fn all_tables_with_ttl(
-        &self,
-    ) -> BoxFuture<'_, Result<Vec<TtlTableInfo>, StorageError>>;
+    fn all_tables_with_ttl(&self) -> BoxFuture<'_, Result<Vec<TtlTableInfo>, StorageError>>;
 
     /// List all tables with TTL enabled AND index ready: `(account_id, table_name, ttl_attribute)`.
     fn all_tables_with_ttl_index_ready(

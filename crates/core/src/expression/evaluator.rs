@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 use crate::error::DynamoDbError;
 use crate::types::AttributeValue;
 
-use super::ast::{CompareOp, Expr};
+use super::ast::{CompareOp, Expr, PathElement};
 use super::resolver::{ExpressionMaps, resolve_path};
 
 /// Evaluate a condition expression against an item.
@@ -242,6 +242,15 @@ fn evaluate_function(
             }
             let val = resolve_to_value(&args[0], item, maps)?;
             let prefix = resolve_to_value(&args[1], item, maps)?;
+            // Reject invalid operand types — only S and B are allowed
+            if let Some(ref p) = prefix.as_deref() {
+                if !matches!(p, AttributeValue::S(_) | AttributeValue::B(_)) {
+                    let type_code = attribute_type_code(p);
+                    return Err(DynamoDbError::ValidationException(format!(
+                        "Invalid ConditionExpression: Incorrect operand type for operator or function; operator or function: begins_with, operand type: {type_code}"
+                    )));
+                }
+            }
             match (val.as_deref(), prefix.as_deref()) {
                 (Some(AttributeValue::S(s)), Some(AttributeValue::S(p))) => {
                     Ok(s.starts_with(p.as_str()))
@@ -258,6 +267,24 @@ fn evaluate_function(
                     "Invalid ConditionExpression: contains requires exactly two arguments"
                         .to_owned(),
                 ));
+            }
+            if args[0] == args[1] {
+                let operand_str = match &args[0] {
+                    Expr::Path(p) => {
+                        let parts: Vec<String> = p
+                            .iter()
+                            .map(|e| match e {
+                                PathElement::Attribute(a) => a.clone(),
+                                PathElement::Index(i) => format!("[{i}]"),
+                            })
+                            .collect();
+                        format!("[{}]", parts.join("."))
+                    }
+                    _ => String::new(),
+                };
+                return Err(DynamoDbError::ValidationException(format!(
+                    "Invalid ConditionExpression: The first operand must be distinct from the remaining operands for this operator or function; operator: contains, first operand: {operand_str}"
+                )));
             }
             let val = resolve_to_value(&args[0], item, maps)?;
             let operand = resolve_to_value(&args[1], item, maps)?;
@@ -301,7 +328,7 @@ fn evaluate_size<'a>(
         return Ok(None);
     };
     let sz = match v.as_ref() {
-        AttributeValue::S(s) => s.len(),
+        AttributeValue::S(s) => s.encode_utf16().count(),
         AttributeValue::B(b) => b.len(),
         AttributeValue::N(n) => n.len(), // ASCII digits are 1 byte each, so len() == UTF-8 byte count
         AttributeValue::L(l) => l.len(),

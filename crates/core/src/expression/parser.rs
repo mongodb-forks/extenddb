@@ -125,9 +125,36 @@ fn parse_primary(
                 "Invalid ConditionExpression: expression nesting depth exceeded",
             ));
         }
+        let start = *pos;
         let expr = parse_or(tokens, pos, depth, max_depth)?;
         *depth -= 1;
         parser_common::expect_token(tokens, pos, &Token::RParen, ")", "ConditionExpression")?;
+        // Reject redundant parentheses: if no AND/OR was consumed between our
+        // parens (the closing ')' is the token right after the inner expression
+        // ended) AND the inner content started with '(', the parens are redundant.
+        // We detect "no AND/OR at this level" by checking that the inner content
+        // is a single parenthesized group: starts with '(' and its match is at
+        // the end (pos - 2, since pos is now past our ')').
+        if tokens[start] == Token::LParen {
+            // Find matching ')' for the inner '('
+            let mut d = 1usize;
+            let mut s = start + 1;
+            while s < tokens.len() && d > 0 {
+                match &tokens[s] {
+                    Token::LParen => d += 1,
+                    Token::RParen => d -= 1,
+                    _ => {}
+                }
+                s += 1;
+            }
+            // s is now one past the matching ')'. If that equals pos - 1
+            // (our closing ')'), the inner parens span the entire content.
+            if s == *pos - 1 {
+                return Err(validation_err(
+                    "Invalid ConditionExpression: The expression has redundant parentheses;",
+                ));
+            }
+        }
         return Ok(expr);
     }
 
@@ -462,5 +489,40 @@ mod tests {
         assert!(
             matches!(err, DynamoDbError::ValidationException(msg) if msg.contains("depth exceeded"))
         );
+    }
+
+    #[test]
+    fn redundant_parens_rejected() {
+        let cases = [
+            "((a = :v))",
+            "(((a = :v)))",
+            "((a = :v AND b = :v2))",
+            "((NOT (a = :v)))",
+        ];
+        for expr in cases {
+            let tokens = tokenize(expr).unwrap();
+            let err = parse_condition(&tokens).unwrap_err();
+            assert!(
+                matches!(&err, DynamoDbError::ValidationException(msg) if msg.contains("redundant parentheses")),
+                "Expected redundant parens error for: {expr}, got: {err:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn valid_parens_accepted() {
+        let cases = [
+            "(a = :v)",
+            "(a = :v) AND (b = :v2)",
+            "((a = :v) AND (b = :v2))",
+            "(NOT (a = :v))",
+        ];
+        for expr in cases {
+            let tokens = tokenize(expr).unwrap();
+            assert!(
+                parse_condition(&tokens).is_ok(),
+                "Expected valid parse for: {expr}"
+            );
+        }
     }
 }
