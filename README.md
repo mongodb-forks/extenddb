@@ -15,7 +15,7 @@ A DynamoDB-compatible API adapter, ExtendDB speaks the DynamoDB wire protocol â€
 ## Features
 
 - Full DynamoDB wire protocol: CRUD, Query, Scan, Batch, Transactions, Streams, TTL, Import/Export
-- SigV4 authentication with local IAM: users, groups, roles, policies, permissions boundaries
+- SigV4 authentication with IAM compatibility: users, groups, roles, policies, permissions boundaries
 - Web management console for account and credential administration
 - TLS with automatic self-signed certificate generation (replaceable with CA-signed certs)
 - CSRF protection, security headers, session management

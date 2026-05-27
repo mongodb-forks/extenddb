@@ -1,5 +1,5 @@
 # RFCs
-
+``
 Substantial changes go through the RFC process before implementation.
 ADRs ([`docs/adr/`](../adr/)) record decisions; RFCs solicit input on
 proposals.
