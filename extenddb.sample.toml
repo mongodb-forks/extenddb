@@ -29,7 +29,7 @@
 # run_dir = "~/.extenddb/run"     # Directory for PID file (~ is expanded to $HOME)
 
 [storage]
-# backend = "postgres"         # Storage backend (only "postgres" supported)
+# backend = "postgres"         # Storage backend: "postgres" or "mongodb"
 
 [storage.postgres]
 # Connection string points to the CATALOG database.
@@ -51,6 +51,11 @@
                                 # a startup warning). With auth enabled, each
                                 # DynamoDB request makes concurrent authz queries
                                 # — size this to match expected concurrency.
+
+[storage.mongodb]
+# MongoDB connection string. Requires a replica set (even single-node).
+# connection_string = "mongodb://localhost:27017/?replicaSet=rs0"
+# max_pool_size = 20           # Maximum concurrent connections to MongoDB.
 
 [auth]
 # provider = "builtin"          # Auth provider:
