@@ -69,15 +69,19 @@ pub fn run(args: &ServeArgs) -> anyhow::Result<()> {
 
     // Check backend is supported by this build
     let backend = &app_config.storage._backend;
-    #[cfg(not(feature = "postgres"))]
-    if backend == "postgres" {
-        anyhow::bail!("PostgreSQL backend not enabled. Rebuild with --features postgres");
-    }
-    #[cfg(feature = "postgres")]
-    if backend != "postgres" {
+    let supported = {
+        let mut backends = Vec::new();
+        #[cfg(feature = "postgres")]
+        backends.push("postgres");
+        #[cfg(feature = "mongodb")]
+        backends.push("mongodb");
+        backends
+    };
+    if !supported.contains(&backend.as_str()) {
         anyhow::bail!(
-            "Unknown backend '{}'. This build only supports 'postgres'.",
-            backend
+            "Unknown backend '{}'. This build supports: {}",
+            backend,
+            supported.join(", ")
         );
     }
 

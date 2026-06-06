@@ -7,6 +7,9 @@
 //! `serve`, `init`, `destroy`, `verify`, `migrate`, `status`, `stop`, `settings`.
 //! Running with no subcommand prints version information.
 
+#[cfg(feature = "mongodb")]
+extern crate extenddb_storage_mongodb;
+
 mod cmd_catalog_check;
 mod cmd_destroy;
 mod cmd_init;
